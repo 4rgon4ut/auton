@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+pub mod uart;
+
 use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
