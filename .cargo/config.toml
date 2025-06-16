@@ -4,64 +4,22 @@ rustflags = [
     '-Clink-arg=-Tsrc/lds/virt.lds'
 ]
 
+[unstable]
+build-std = ["core", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]
+
 [target.riscv64gc-unknown-none-elf]
 # This runner command is broken into a multiline array for readability.
 # Cargo will concatenate these strings into a single command when you run `cargo run`.
+
 runner = [
-    # The core QEMU command for emulating a 64-bit RISC-V system.
     "qemu-system-riscv64",
-
-    # '-machine virt' specifies the QEMU "virt" board, a generic and modern
-    # virtual platform that is ideal for OS development.
     "-machine", "virt",
-
-    # '-cpu rv64' selects the generic 64-bit RISC-V CPU model.
     "-cpu", "rv64",
-
-    # '-smp 4' allocates 4 symmetric multiprocessing (SMP) cores to the guest VM.
     "-smp", "4",
-
-    # '-m 128M' allocates 128 megabytes of RAM to the guest VM.
     "-m", "128M",
-
-    # --- Block Device Configuration ---
-    # Defines a drive backend but does not attach it to a controller yet.
-    # 'if=none': No frontend (interface) is created for this drive yet.
-    # 'format=raw': The disk image is a raw binary file, not qcow2 or another format.
-    # 'file=hdd.dsk': Specifies the path to the disk image file.
-    # 'id=foo': Assigns a unique ID "foo" to this drive for later reference.
-    "-drive", "if=none,format=raw,file=hdd.dsk,id=foo",
-    # Creates a VirtIO block device (a high-performance virtual storage controller)
-    # and attaches the drive with the ID "foo" to it.
-    "-device", "virtio-blk-device,scsi=off,drive=foo",
-
-    # --- I/O and Display Configuration ---
-    # '-nographic' disables QEMU's graphical window. The VM will run "headless".
-    "-nographic",
-
-    # '-serial mon:stdio' redirects the guest's first serial port to the host's
-    # standard input/output. This allows you to interact with your OS via the terminal.
-    "-serial", "mon:stdio",
-
-    # '-bios none' tells QEMU not to load a default firmware/BIOS (like OpenSBI).
-    # This is necessary because we are loading our kernel directly.
     "-bios", "none",
-
-    # --- VirtIO Device Passthrough ---
-    # Provides the guest with a VirtIO-based random number generator for entropy.
-    "-device", "virtio-rng-device",
-    # Provides a virtual GPU, useful even in nographic mode for OSes that expect one.
-    "-device", "virtio-gpu-device",
-    # Provides a virtual network card.
-    "-device", "virtio-net-device",
-    # Provides a virtual tablet for absolute pointing, useful in graphical environments.
-    "-device", "virtio-tablet-device",
-    # Provides a virtual keyboard.
-    "-device", "virtio-keyboard-device",
-
-    # --- Kernel Loading ---
-    # '-kernel ' tells QEMU to load the following file as the guest kernel.
-    # The trailing space is CRITICAL. Cargo automatically appends the path
-    # to your compiled Rust executable right here.
+    "-nographic",
+    "-serial", "mon:stdio",
     "-kernel",
 ]

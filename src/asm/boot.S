@@ -1,10 +1,10 @@
 .option norvc
 .section .init
 
-.type start, @function
-.global start
 
-start:
+.global _start
+
+_start:
     .cfi_startproc
 
     csrr    t0, mhartid
@@ -30,23 +30,29 @@ bss_clear_loop:
     bltu    t0, t1, bss_clear_loop
 
 bss_clear_done:
+    # csrr    a0, mhartid
+    # li      a1, 0
+
+    # #    Set the return address to kmain
+    # la      t0, kmain
+    # csrw    mepc, t0
+
+    # #    Set the Previous Privilege mode in mstatus to Supervisor (S-Mode)
+    # #    MPP bits (12:11) = 01 for Supervisor
+    # csrr    t0, mstatus
+    # li      t1, ~(3 << 11)          # Create a mask to clear MPP bits
+    # and     t0, t0, t1
+    # li      t1, 1 << 11             # Set MPP to 01 (S-Mode)
+    # or      t0, t0, t1
+    # csrw    mstatus, t0
+
+    # mret
+
     csrr    a0, mhartid
     li      a1, 0
 
-    #    Set the return address to kmain
-    la      t0, kmain
-    csrw    mepc, t0
-
-    #    Set the Previous Privilege mode in mstatus to Supervisor (S-Mode)
-    #    MPP bits (12:11) = 01 for Supervisor
-    csrr    t0, mstatus
-    li      t1, ~(3 << 11)          # Create a mask to clear MPP bits
-    and     t0, t0, t1
-    li      t1, 1 << 11             # Set MPP to 01 (S-Mode)
-    or      t0, t0, t1
-    csrw    mstatus, t0
-
-    mret
+    # Directly call kmain. The CPU stays in M-Mode.
+    call    kmain
 
     .cfi_endproc
 
