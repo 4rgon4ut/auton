@@ -2,6 +2,7 @@
 #![no_main]
 // Modules
 pub mod macros;
+pub mod sync;
 pub mod uart;
 
 // ---
