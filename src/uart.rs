@@ -6,10 +6,12 @@ const BASE: *mut u8 = 0x1000_0000 as *mut u8;
 const LSR_OFFSET: usize = 5;
 const LSR_TX_EMPTY: u8 = 1 << 5;
 
+pub static mut UART_INSTANCE: Uart = Uart::new();
+
 pub struct Uart;
 
 impl Uart {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
     }
 

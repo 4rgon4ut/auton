@@ -1,18 +1,30 @@
 #![no_std]
 #![no_main]
-
+// Modules
+pub mod macros;
 pub mod uart;
 
+// ---
 use core::panic::PanicInfo;
 
 core::arch::global_asm!(include_str!("asm/boot.S"));
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+fn panic(info: &PanicInfo) -> ! {
+    print!("KERNEL PANIC: {}", info);
+    halt();
+}
+
+fn halt() -> ! {
+    unsafe {
+        loop {
+            core::arch::asm!("wfi");
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain(hartid: usize, _dtb_ptr: usize) -> ! {
-    loop {}
+    println!("Hello, {}", "world!");
+    halt();
 }
