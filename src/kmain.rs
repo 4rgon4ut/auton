@@ -11,8 +11,8 @@ use core::panic::PanicInfo;
 core::arch::global_asm!(include_str!("asm/boot.S"));
 
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    print!("KERNEL PANIC: {}", info);
+fn _panic(info: &PanicInfo) -> ! {
+    println!("KERNEL PANIC: {}", info);
     halt();
 }
 
@@ -27,5 +27,5 @@ fn halt() -> ! {
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain(hartid: usize, _dtb_ptr: usize) -> ! {
     println!("Hello, {}", "world!");
-    halt();
+    panic!("This is a panic test on hart {}", hartid);
 }

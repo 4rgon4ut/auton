@@ -49,7 +49,7 @@ impl ErrorType for Uart {
     type Error = UartError;
 }
 
-// HAL Write trait
+// HAL Write trait, similar to io::Write
 impl Write for Uart {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         for &byte in buf {
