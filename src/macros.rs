@@ -3,11 +3,7 @@ use core::fmt::{self, Write};
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
-    unsafe {
-        let uart_ptr = core::ptr::addr_of_mut!(UART_INSTANCE);
-        // TODO: add locking mechanism to prevent concurrent writes
-        *uart_ptr.write_fmt(args).unwrap();
-    }
+    UART_INSTANCE.lock().write_fmt(args).unwrap();
 }
 
 #[macro_export]

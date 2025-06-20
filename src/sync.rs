@@ -1,4 +1,5 @@
 use core::cell::UnsafeCell;
+use core::convert::From;
 use core::ops::{Deref, DerefMut, Drop};
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -31,8 +32,13 @@ impl<T> Spinlock<T> {
     }
 }
 
-// TODO: implement Deref and DerefMut
-struct SpinlockGuard<'a, T> {
+impl<T> From<T> for Spinlock<T> {
+    fn from(data: T) -> Self {
+        Spinlock::new(data)
+    }
+}
+
+pub struct SpinlockGuard<'a, T> {
     lock: &'a Spinlock<T>,
 }
 
@@ -41,3 +47,21 @@ impl<T> Drop for SpinlockGuard<'_, T> {
         self.lock.unlock();
     }
 }
+
+impl<T> Deref for SpinlockGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<T> DerefMut for SpinlockGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+// unsafe guarantees
+unsafe impl<T: Send> Send for Spinlock<T> {}
+unsafe impl<T: Send> Sync for Spinlock<T> {}

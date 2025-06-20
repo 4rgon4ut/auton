@@ -1,3 +1,4 @@
+use crate::sync::Spinlock;
 use core::fmt;
 use core::ptr::{read_volatile, write_volatile};
 use embedded_io::{Error, ErrorKind, ErrorType, Write};
@@ -6,7 +7,7 @@ const BASE: *mut u8 = 0x1000_0000 as *mut u8;
 const LSR_OFFSET: usize = 5;
 const LSR_TX_EMPTY: u8 = 1 << 5;
 
-pub static mut UART_INSTANCE: Uart = Uart::new();
+pub static UART_INSTANCE: Spinlock<Uart> = Spinlock::new(Uart::new());
 
 pub struct Uart;
 
