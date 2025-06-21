@@ -9,7 +9,7 @@ pub mod uart;
 use core::sync::atomic::AtomicBool;
 use core::{fmt::Write, panic::PanicInfo};
 
-use crate::uart::{UART_INSTANCE, Uart};
+use crate::uart::Uart;
 
 core::arch::global_asm!(include_str!("asm/boot.S"));
 
@@ -47,6 +47,21 @@ fn halt() -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain(hartid: usize, _dtb_ptr: usize) -> ! {
-    let _guard = UART_INSTANCE.lock();
+    print_welcome_screen();
     panic!("This is a panic test on hart {}", hartid);
+}
+
+pub fn print_welcome_screen() {
+    println!(
+        r#"
+
+██╗    ██╗ ███████╗ ██╗      ██████╗   ██████╗  ███╗   ███╗ ███████╗
+██║    ██║ ██╔════╝ ██║     ██╔════╝  ██╔═══██╗ ████╗ ████║ ██╔════╝
+██║ █╗ ██║ █████╗   ██║     ██║       ██║   ██║ ██╔████╔██║ █████╗
+██║███╗██║ ██╔══╝   ██║     ██║       ██║   ██║ ██║╚██╔╝██║ ██╔══╝
+╚███╔███╔╝ ███████╗ ███████╗╚██████╗  ╚██████╔╝ ██║ ╚═╝ ██║ ███████╗
+ ╚══╝╚══╝  ╚══════╝ ╚══════╝ ╚═════╝   ╚═════╝  ╚═╝     ╚═╝ ╚══════╝
+
+"#
+    );
 }
