@@ -3,7 +3,14 @@ use core::fmt::{self, Write};
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
-    UART_INSTANCE.lock().write_fmt(args).unwrap();
+    let mut guard = UART_INSTANCE.lock();
+    guard
+        .write_fmt(args)
+        .map_err(|e| {
+            drop(guard);
+            panic!("UART write error: {}", e);
+        })
+        .ok();
 }
 
 #[macro_export]
