@@ -32,6 +32,19 @@ bss_clear_loop:
 bss_clear_done:
     # pass
 
+# FIXME: This is a workaround until I wave a proper trap handling and interrupts
+configure_pmp:
+    # We will use PMP entry 0 to create a TOR (Top of Range) region
+    # that covers the entire 64-bit address space.
+    li      t0, -1      # Load all 1s into t0
+    csrw    pmpaddr0, t0  # Set the range to cover all addresses
+
+    # Configure pmpcfg0 to grant Read, Write, and Execute (RWX) permissions
+    # for this region, and set the address matching mode to TOR.
+    # The value 0x1F corresponds to: R=1, W=1, X=1, A=TOR(0b011), L=0
+    li      t0, 0x1F
+    csrw    pmpcfg0, t0
+
 delegate_traps:
     li      t0, -1
     csrw    medeleg, t0
