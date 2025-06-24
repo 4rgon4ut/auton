@@ -12,6 +12,7 @@ use core::{fmt::Write, panic::PanicInfo};
 use crate::uart::Uart;
 
 core::arch::global_asm!(include_str!("asm/boot.S"));
+core::arch::global_asm!(include_str!("asm/trap.S"));
 
 static IS_PANICKING: AtomicBool = AtomicBool::new(false);
 

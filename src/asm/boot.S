@@ -32,14 +32,13 @@ bss_clear_loop:
 bss_clear_done:
     # pass
 
+delegate_traps:
+    li      t0, -1
+    csrw    medeleg, t0
+    csrw    mideleg, t0
 
-# delegate_traps:
-#     li      t0, -1
-#     csrw    medeleg, t0
-#     csrw    mideleg, t0
-
-#     la      t0, supervisor_trap_handler
-#     csrw    stvec, t0
+    la      t0, trap_handler
+    csrw    stvec, t0
 
 prepare_s_mode_transition:
     csrr    t0, mstatus
