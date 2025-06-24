@@ -21,5 +21,7 @@ runner = [
     "-bios", "none",
     "-nographic",
     "-serial", "mon:stdio",
+    #     "-s",
+    # "-S",
     "-kernel",
 ]
