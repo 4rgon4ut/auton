@@ -50,7 +50,7 @@ delegate_traps:
     csrw    medeleg, t0
     csrw    mideleg, t0
 
-    la      t0, trap_handler
+    la      t0, strap_handler
     csrw    stvec, t0
 
 prepare_s_mode_transition:
