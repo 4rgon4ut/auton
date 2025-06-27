@@ -89,7 +89,7 @@ strap_handler:
     save_gprs
 
     mv      a0, sp
-    call    rust_trap_handler
+    call    trap_handler
 
     restore_gprs
     sret
