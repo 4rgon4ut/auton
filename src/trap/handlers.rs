@@ -1,10 +1,8 @@
-use crate::trap::{Trap, TrapFrame, read_scause};
+use crate::trap::{Trap, TrapFrame};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn trap_handler(frame: &mut TrapFrame) -> ! {
-    let cause = read_scause();
-
-    match Trap::try_from(cause) {
+    match Trap::try_from(frame.scause) {
         Ok(trap) => match trap {
             Trap::Interrupt(interrupt) => {
                 panic!("Interrupt: {:?}", interrupt);

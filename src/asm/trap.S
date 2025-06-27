@@ -1,13 +1,14 @@
-.altmacro
-.macro save_gprs
-    # Allocate space on the stack for the trap frame.
-    # 32 registers * 8 bytes/register = 256 bytes.
-    # This maintains the required 16-byte stack alignment.
-    addi sp, sp, -256
+# RISC-V Supervisor Trap Handler with Full Context Save/Restore
 
-    # Save all gprs except x0 (zero).
+.option norvc
+
+.altmacro
+.macro save_context
+    # 32 GPRs + 4 CSRs = 36 registers. 36 * 8 bytes = 288 bytes.
+    addi sp, sp, -288
+
+    # gprs
     sd   ra, 0*8(sp)    # x1
-    # x2 (sp) is handled separately below
     sd   gp, 2*8(sp)    # x3
     sd   tp, 3*8(sp)    # x4
     sd   t0, 4*8(sp)    # x5
@@ -38,14 +39,29 @@
     sd   t5, 29*8(sp)   # x30
     sd   t6, 30*8(sp)   # x31
 
-    # Save the original stack pointer. We calculate its value *before*
-    # we allocated the trap frame and store it in the x2 slot.
-    addi t0, sp, 256
+    # original stack pointer
+    addi t0, sp, 320
     sd   t0, 1*8(sp)
+
+    # csrs
+    csrr t0, sstatus
+    sd   t0, 32*8(sp)
+    csrr t0, sepc
+    sd   t0, 33*8(sp)
+    csrr t0, stval
+    sd   t0, 34*8(sp)
+    csrr t0, scause
+    sd   t0, 35*8(sp)
 .endm
 
-.macro restore_gprs
-    # restore all gprs from the trap frame on the stack
+.macro restore_context
+    # `stval` and `scause` are informational and do not need to be restored.
+    ld   t0, 32*8(sp)
+    csrw sstatus, t0
+    ld   t0, 33*8(sp)
+    csrw sepc, t0
+
+    # gprs
     ld   ra, 0*8(sp)
     ld   gp, 2*8(sp)
     ld   tp, 3*8(sp)
@@ -77,19 +93,20 @@
     ld   t5, 29*8(sp)
     ld   t6, 30*8(sp)
 
-    # Restore the original stack pointer. This also deallocates the trap frame.
+    # restore the original stack pointer, deallocating the trap frame
     ld   sp, 1*8(sp)
 .endm
 
 .section .text
-.global trap_handler
+.global alltraps
+.align 2
 
-strap_handler:
-
-    save_gprs
+alltraps:
+    save_context
 
     mv      a0, sp
     call    trap_handler
 
-    restore_gprs
+    restore_context
+
     sret

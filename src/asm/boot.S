@@ -50,7 +50,7 @@ delegate_traps:
     csrw    medeleg, t0
     csrw    mideleg, t0
 
-    la      t0, strap_handler
+    la      t0, alltraps
     csrw    stvec, t0
 
 prepare_s_mode_transition:
@@ -75,7 +75,7 @@ jump_to_kernel:
 
     .cfi_endproc
 
-# ---
+# parking loop
 hart_jail:
     wfi
     j   hart_jail

@@ -68,17 +68,9 @@ impl TryFrom<usize> for Trap {
 #[repr(C)]
 #[derive(Debug)]
 pub struct TrapFrame {
-    gprs: [usize; 32],
-    // TODO: add more fields as needed
-    // pub sstatus: usize,
-    // pub sepc: usize,
-}
-
-#[inline(always)]
-pub fn read_scause() -> usize {
-    let cause: usize;
-    unsafe {
-        core::arch::asm!("csrr {}, scause", out(reg) cause);
-    }
-    cause
+    pub gprs: [usize; 32], // 256
+    pub sstatus: usize,    // 264
+    pub sepc: usize,       // 272
+    pub stval: usize,      // 280
+    pub scause: usize,     // 288
 }

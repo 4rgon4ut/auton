@@ -2,4 +2,4 @@ mod handlers;
 mod traps;
 
 pub use handlers::trap_handler;
-pub use traps::{Exception, Interrupt, Trap, TrapFrame, read_scause};
+pub use traps::{Exception, Interrupt, Trap, TrapFrame};
