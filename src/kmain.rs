@@ -3,6 +3,7 @@
 // Modules
 pub mod macros;
 pub mod sync;
+pub mod trap;
 pub mod uart;
 
 // ---
