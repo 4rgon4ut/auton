@@ -1,4 +1,5 @@
 # RISC-V Supervisor Trap Handler with Full Context Save/Restore
+// TODO: sscratch
 
 .option norvc
 

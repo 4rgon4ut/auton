@@ -1,16 +1,16 @@
 #![no_std]
 #![no_main]
 // Modules
+pub mod drivers;
 pub mod macros;
 pub mod sync;
 pub mod trap;
-pub mod uart;
 
 // ---
 use core::sync::atomic::AtomicBool;
 use core::{fmt::Write, panic::PanicInfo};
 
-use crate::uart::Uart;
+use crate::drivers::uart::Uart;
 
 core::arch::global_asm!(include_str!("asm/boot.S"));
 core::arch::global_asm!(include_str!("asm/trap.S"));

@@ -1,4 +1,4 @@
-use crate::uart::UART_INSTANCE;
+use crate::drivers::uart::UART_INSTANCE;
 use core::fmt::{self, Write};
 
 #[doc(hidden)]
