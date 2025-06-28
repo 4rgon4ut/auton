@@ -1,38 +1,72 @@
-use crate::sync::Spinlock;
+use super::{Device, Driver};
+use crate::globals::UART_INSTANCE;
+use crate::println;
+
 use core::fmt;
 use core::ptr::{read_volatile, write_volatile};
 use embedded_io::{Error, ErrorKind, ErrorType, Write};
+use fdt::node::FdtNode;
 
-const BASE: *mut u8 = 0x1000_0000 as *mut u8;
 const LSR_OFFSET: usize = 5;
 const LSR_TX_EMPTY: u8 = 1 << 5;
 
-pub static UART_INSTANCE: Spinlock<Uart> = Spinlock::new(Uart::new());
+pub struct UartDriver;
 
-pub struct Uart;
+impl Driver for UartDriver {
+    type Device = Uart;
+
+    fn init_global(&self, device: Self::Device) {
+        let addr = device.base_address;
+        let mut guard = UART_INSTANCE.lock();
+        *guard = Some(device);
+        drop(guard);
+        println!("UART ns16550a initialized with base address: {:#x}", addr);
+    }
+
+    fn compatible(&self) -> &'static [&'static str] {
+        &["ns16550a", "riscv,ns16550a"]
+    }
+
+    fn probe(&self, node: &FdtNode) -> Option<Self::Device> {
+        let compatibility_list = node.compatible()?;
+
+        if !compatibility_list
+            .all()
+            .any(|c| self.compatible().contains(&c))
+        {
+            return None;
+        }
+
+        let base_addr = node.reg()?.next()?.starting_address;
+        let uart = Uart::new(base_addr as usize);
+
+        Some(uart)
+    }
+}
+
+pub struct Uart {
+    pub base_address: usize,
+}
+
+impl Device for Uart {}
 
 impl Uart {
-    pub const fn new() -> Self {
-        Self {}
+    pub fn new(base_address: usize) -> Self {
+        Self { base_address }
     }
 
     pub fn send_byte_blocking(&mut self, byte: u8) {
+        let base_ptr = self.base_address as *mut u8;
         unsafe {
             // wait untill transmit holding register is empty (5th bit of LSR is set)
             loop {
-                let lsr = read_volatile(BASE.add(LSR_OFFSET));
+                let lsr = read_volatile(base_ptr.add(LSR_OFFSET));
                 if (lsr & LSR_TX_EMPTY) != 0 {
                     break;
                 }
             }
-            write_volatile(BASE, byte);
+            write_volatile(base_ptr, byte);
         }
-    }
-}
-
-impl Default for Uart {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

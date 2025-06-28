@@ -42,6 +42,11 @@ impl<T> Spinlock<T> {
     fn unlock(&self) {
         self.locked.store(false, Ordering::Release);
     }
+
+    // This method is super unsafe because it allows stealing the data without locking.
+    pub fn steal(&self) -> T {
+        unsafe { core::ptr::read(self.data.get()) }
+    }
 }
 
 impl<T> From<T> for Spinlock<T> {

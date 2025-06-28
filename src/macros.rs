@@ -1,16 +1,18 @@
-use crate::drivers::uart::UART_INSTANCE;
+use crate::globals::UART_INSTANCE;
 use core::fmt::{self, Write};
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     let mut guard = UART_INSTANCE.lock();
-    guard
-        .write_fmt(args)
-        .map_err(|e| {
-            drop(guard);
-            panic!("UART write error: {}", e);
-        })
-        .ok();
+
+    if let Some(uart) = &mut *guard {
+        uart.write_fmt(args)
+            .map_err(|e| {
+                drop(guard);
+                panic!("UART write error: {}", e);
+            })
+            .ok();
+    }
 }
 
 #[macro_export]

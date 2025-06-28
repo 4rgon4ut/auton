@@ -21,6 +21,8 @@ runner = [
     "-bios", "none",
     "-nographic",
     "-serial", "mon:stdio",
+    "-dtb",
+    "virt.dtb",
     # "-s",
     # "-S",
     "-kernel",

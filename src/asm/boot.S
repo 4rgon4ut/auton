@@ -66,7 +66,7 @@ prepare_s_mode_transition:
 
 jump_to_kernel:
     csrr a0, mhartid
-    li   a1, 0
+    # a1 is dtb pointer
 
     la   t0, kmain
     csrw mepc, t0
