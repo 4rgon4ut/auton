@@ -5,14 +5,14 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Spinlock<T> {
     locked: AtomicBool,
-    data: UnsafeCell<T>,
+    inner: UnsafeCell<T>,
 }
 
 impl<T> Spinlock<T> {
     pub const fn new(data: T) -> Self {
         Self {
             locked: AtomicBool::new(false),
-            data: UnsafeCell::new(data),
+            inner: UnsafeCell::new(data),
         }
     }
 
@@ -45,7 +45,7 @@ impl<T> Spinlock<T> {
 
     // This method is super unsafe because it allows stealing the data without locking.
     pub fn steal(&self) -> T {
-        unsafe { core::ptr::read(self.data.get()) }
+        unsafe { core::ptr::read(self.inner.get()) }
     }
 }
 
@@ -69,13 +69,13 @@ impl<T> Deref for SpinlockGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.lock.data.get() }
+        unsafe { &*self.lock.inner.get() }
     }
 }
 
 impl<T> DerefMut for SpinlockGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.lock.data.get() }
+        unsafe { &mut *self.lock.inner.get() }
     }
 }
 
