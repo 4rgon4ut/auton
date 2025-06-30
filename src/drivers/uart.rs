@@ -23,17 +23,12 @@ impl Driver for UartDriver {
         println!("UART ns16550a initialized with base address: {:#x}", addr);
     }
 
-    fn compatible(&self) -> &'static [&'static str] {
+    fn compatibility(&self) -> &'static [&'static str] {
         &["ns16550a", "riscv,ns16550a"]
     }
 
     fn probe(&self, node: &FdtNode) -> Option<Self::Device> {
-        let compatibility_list = node.compatible()?;
-
-        if !compatibility_list
-            .all()
-            .any(|c| self.compatible().contains(&c))
-        {
+        if !self.is_compatible(node) {
             return None;
         }
 
