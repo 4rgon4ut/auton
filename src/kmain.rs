@@ -11,8 +11,6 @@ pub mod trap;
 use core::sync::atomic::AtomicBool;
 use core::{fmt::Write, panic::PanicInfo};
 
-use crate::drivers::{Driver, UartDriver};
-
 use fdt::Fdt;
 
 core::arch::global_asm!(include_str!("asm/boot.S"));
@@ -55,12 +53,7 @@ pub extern "C" fn kmain(hartid: usize, dtb_ptr: usize) -> ! {
     // Default UART base address, can be overridden by FDT
     let fdt = unsafe { Fdt::from_ptr(dtb_ptr as *const u8).unwrap() };
 
-    for node in fdt.all_nodes() {
-        if let Some(device) = UartDriver.probe(&node) {
-            UartDriver.init_global(device);
-            break;
-        }
-    }
+    drivers::probe_and_init_devices(&fdt);
 
     print_welcome_screen();
     panic!("This is a panic test on hart {}", hartid);

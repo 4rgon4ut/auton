@@ -16,3 +16,18 @@ pub trait Driver {
 }
 
 pub trait Device {}
+
+pub fn probe_and_init_devices(fdt: &fdt::Fdt) {
+    let drivers = [
+        &UartDriver,
+        // TODO:
+    ];
+
+    for node in fdt.all_nodes() {
+        for driver in drivers.iter() {
+            if let Some(device) = driver.probe(&node) {
+                driver.init_global(device);
+            }
+        }
+    }
+}
