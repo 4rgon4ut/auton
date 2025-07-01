@@ -1,6 +1,6 @@
 use super::{Device, Driver};
-use crate::globals::UART_INSTANCE;
-use crate::println;
+use crate::{devices::_UART_PANIC_ADDRESS, println};
+use crate::{devices::UART_INSTANCE, sync::Spinlock};
 
 use core::fmt;
 use core::ptr::{read_volatile, write_volatile};
@@ -17,10 +17,15 @@ impl Driver for UartDriver {
 
     fn init_global(&self, device: Self::Device) {
         let addr = device.base_address;
-        let mut guard = UART_INSTANCE.lock();
-        *guard = Some(device);
-        drop(guard);
-        println!("UART ns16550a initialized with base address: {:#x}", addr);
+
+        _UART_PANIC_ADDRESS.get_or_init(|| addr);
+        UART_INSTANCE.get_or_init(|| Spinlock::new(device));
+
+        let driver_type = self.compatibility()[0];
+        println!(
+            "✓ UART ({}): successfully initialized at {:#x}",
+            driver_type, addr
+        );
     }
 
     fn compatibility(&self) -> &'static [&'static str] {

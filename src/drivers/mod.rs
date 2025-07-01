@@ -28,18 +28,20 @@ pub trait Driver {
 
 pub trait Device {}
 
-pub fn probe_and_init_devices(fdt: &fdt::Fdt) {
-    let drivers = [
-        &UartDriver,
-        &ClintDriver,
-        // TODO:
-    ];
-
-    for node in fdt.all_nodes() {
-        for driver in drivers.iter() {
-            if let Some(device) = driver.probe(&node) {
-                driver.init_global(device);
+macro_rules! probe_all_drivers {
+    ($fdt_node:expr, $($driver:expr),+ $(,)?) => {
+        // This code block will be expanded by the macro
+        $(
+            if let Some(device) = $driver.probe($fdt_node) {
+                $driver.init_global(device);
             }
-        }
+        )+
+    };
+}
+
+pub fn probe_and_init_devices(fdt: &fdt::Fdt) {
+    // TODO: make sure UART always initialized first
+    for node in fdt.all_nodes() {
+        probe_all_drivers!(&node, &UartDriver, &ClintDriver);
     }
 }

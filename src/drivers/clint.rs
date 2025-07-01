@@ -1,6 +1,7 @@
 use super::{Device, Driver};
-use crate::globals::CLINT_INSTANCE;
+use crate::devices::CLINT_INSTANCE;
 use crate::println;
+use crate::sync::Spinlock;
 use core::ptr::{read_volatile, write_volatile};
 
 pub const MTIMECMP_OFFSET: usize = 0x4000;
@@ -56,12 +57,13 @@ impl Driver for ClintDriver {
 
     fn init_global(&self, device: Self::Device) {
         let addr = device.base_address;
-        let mut guard = CLINT_INSTANCE.lock();
-        *guard = Some(device);
-        drop(guard);
+
+        CLINT_INSTANCE.get_or_init(|| Spinlock::new(device));
+
+        let driver_type = self.compatibility()[0];
         println!(
-            "CLINT riscv,clint0 initialized with base address: {:#x}",
-            addr
+            "✓ CLINT ({}): successfully initialized at {:#x}",
+            driver_type, addr
         );
     }
 

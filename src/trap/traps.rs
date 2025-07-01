@@ -74,3 +74,30 @@ pub struct TrapFrame {
     pub stval: usize,      // 280
     pub scause: usize,     // 288
 }
+
+impl core::fmt::Display for TrapFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "--- TrapFrame ---")?;
+        writeln!(f, "  sstatus: {:#x}", self.sstatus)?;
+        writeln!(f, "  sepc:    {:#x}", self.sepc)?;
+        writeln!(f, "  stval:   {:#x}", self.stval)?;
+        writeln!(f, "  scause:  {:#x}", self.scause)?;
+        writeln!(f, "  Registers:")?;
+
+        // Print General Purpose Registers (GPRs) in a structured way
+        // x0 is hardwired to zero, so we typically start from x1 (ra)
+        // Let's print them in rows for readability
+        for i in 0..32 {
+            // Print 4 registers per line
+            if i % 4 == 0 {
+                write!(f, "    ")?;
+            }
+            write!(f, "x{:02}: {:#018x}  ", i, self.gprs[i])?;
+            if i % 4 == 3 || i == 31 {
+                // End of line or last register
+                writeln!(f)?;
+            }
+        }
+        writeln!(f, "-----------------")
+    }
+}

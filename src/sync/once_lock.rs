@@ -86,12 +86,5 @@ impl Default for OnceLock<()> {
     }
 }
 
-// Ensure OnceLock is Send and Sync, allowing it to be shared across harts safely.
-// OnceLock<T> is Send if T is Send, meaning ownership of the OnceLock can be moved between harts.
 unsafe impl<T: Send> Send for OnceLock<T> {}
-// OnceLock<T> is Sync if T is Send and Sync. This means a shared reference `&OnceLock<T>`
-// can be safely accessed by multiple harts.
-// - `T: Send` is needed because the value `T` might be moved into the OnceLock from another hart.
-// - `T: Sync` is needed because once `T` is initialized, multiple harts might hold
-//   shared references (`&T`) to it, and `T` must be safe for concurrent shared access.
 unsafe impl<T: Send + Sync> Sync for OnceLock<T> {}

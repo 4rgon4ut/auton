@@ -1,7 +1,10 @@
+use crate::println;
 use crate::trap::{Trap, TrapFrame};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn trap_handler(frame: &mut TrapFrame) -> ! {
+    println!("{}", frame);
+
     match Trap::try_from(frame.scause) {
         Ok(trap) => match trap {
             Trap::Interrupt(interrupt) => {
