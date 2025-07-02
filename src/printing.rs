@@ -19,17 +19,17 @@ pub fn _print(args: fmt::Arguments) {
 
 #[doc(hidden)]
 pub fn _panic_print(args: fmt::Arguments) {
-    // 1. Try to use the fully initialized, primary UART driver.
-    //    This is the best-case scenario. It will succeed if the driver
-    //    is initialized and not currently locked.
+    // Try to use the fully initialized, primary UART driver.
+    // This is the best-case scenario. It will succeed if the driver
+    // is initialized and not currently locked.
     if let Some(mut guard) = UART_INSTANCE.get().and_then(|lock| lock.try_lock()) {
         guard.write_fmt(args).ok();
-        return; // Success, printing is done.
+        return;
     }
 
-    // 2. Fallback: The primary driver is unavailable. Try the panic address.
-    //    We can only `get()` the address. If it hasn't been set yet,
-    //    it's too late to initialize it now, so we can't print.
+    // Fallback: The primary driver is unavailable. Try the panic address.
+    // We can only `get()` the address. If it hasn't been set yet,
+    // it's too late to initialize it now, so we can't print.
     if let Some(panic_addr) = _UART_PANIC_ADDRESS.get() {
         let mut stolen_uart = Uart::new(*panic_addr);
         stolen_uart.write_fmt(args).ok();

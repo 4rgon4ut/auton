@@ -24,6 +24,7 @@ static IS_PANICKING: AtomicBool = AtomicBool::new(false);
 #[panic_handler]
 fn _panic(info: &PanicInfo) -> ! {
     // TODO: interrupt other harts here
+    // TODO: disable irqs for this hart
     // TODO: write a crash log in a file or buffer
 
     if IS_PANICKING.swap(true, core::sync::atomic::Ordering::Relaxed) {
