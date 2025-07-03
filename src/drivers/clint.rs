@@ -62,7 +62,7 @@ impl Driver for ClintDriver {
 
         let driver_type = self.compatibility()[0];
         println!(
-            "✓ CLINT ({}): successfully initialized at {:#x}",
+            "[ OK ] CLINT ({}): successfully initialized at {:#x}",
             driver_type, addr
         );
     }

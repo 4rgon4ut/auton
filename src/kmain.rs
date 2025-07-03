@@ -1,8 +1,10 @@
 #![no_std]
 #![no_main]
 // Modules
+pub mod collections;
 pub mod devices;
 pub mod drivers;
+pub mod memory;
 pub mod printing;
 pub mod sync;
 pub mod trap;

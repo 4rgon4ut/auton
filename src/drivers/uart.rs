@@ -23,7 +23,7 @@ impl Driver for UartDriver {
 
         let driver_type = self.compatibility()[0];
         println!(
-            "✓ UART ({}): successfully initialized at {:#x}",
+            "[ OK ] UART ({}):      successfully initialized at {:#x}",
             driver_type, addr
         );
     }
