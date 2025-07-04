@@ -15,7 +15,7 @@ pub struct IntrusiveList<T: Linkable> {
     head: Option<NonNull<T>>,
     tail: Option<NonNull<T>>,
     len: usize,
-    phantom: PhantomData<T>,
+    phantom: PhantomData<*const T>,
 }
 
 impl<T: Linkable> IntrusiveList<T> {
@@ -36,21 +36,26 @@ impl<T: Linkable> IntrusiveList<T> {
         self.len == 0
     }
 
-    pub fn head(&self) -> Option<NonNull<T>> {
-        self.head
+    pub fn front(&self) -> Option<&T> {
+        self.head.map(|node| unsafe { node.as_ref() })
     }
 
-    pub fn tail(&self) -> Option<NonNull<T>> {
-        self.tail
+    pub fn front_mut(&mut self) -> Option<&mut T> {
+        self.head.map(|mut node| unsafe { node.as_mut() })
+    }
+
+    pub fn back(&self) -> Option<&T> {
+        self.tail.map(|node| unsafe { node.as_ref() })
+    }
+
+    pub fn back_mut(&mut self) -> Option<&mut T> {
+        self.tail.map(|mut node| unsafe { node.as_mut() })
     }
 
     pub fn push_front(&mut self, mut node: NonNull<T>) {
-        let node_ref = unsafe { node.as_mut() };
+        assert_detached(node);
 
-        assert!(
-            node_ref.next().is_none() && node_ref.prev().is_none(),
-            "Node is already in a list"
-        );
+        let node_ref = unsafe { node.as_mut() };
 
         match self.head {
             Some(mut old_head) => {
@@ -91,12 +96,9 @@ impl<T: Linkable> IntrusiveList<T> {
     }
 
     pub fn push_back(&mut self, mut node: NonNull<T>) {
-        let node_ref = unsafe { node.as_mut() };
+        assert_detached(node);
 
-        assert!(
-            node_ref.next().is_none() && node_ref.prev().is_none(),
-            "Node is already in a list"
-        );
+        let node_ref = unsafe { node.as_mut() };
 
         match self.tail {
             Some(mut old_tail) => {
@@ -135,6 +137,14 @@ impl<T: Linkable> IntrusiveList<T> {
             old_tail
         })
     }
+
+    pub fn cursor_mut<'a>(&'a mut self) -> CursorMut<'a, T> {
+        CursorMut {
+            list: NonNull::from(&mut *self),
+            current: self.head,
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<T: Linkable> Default for IntrusiveList<T> {
@@ -146,6 +156,136 @@ impl<T: Linkable> Default for IntrusiveList<T> {
 // TODO:
 pub struct CursorMut<'a, T: Linkable> {
     list: NonNull<IntrusiveList<T>>,
-    node: Option<NonNull<T>>,
+    current: Option<NonNull<T>>,
     phantom: PhantomData<&'a mut T>,
+}
+
+/*
+
+split_after(): Splits the list into two. All nodes from the beginning up to and including the cursor's current node remain in the original list. All nodes after the cursor are removed and returned as a new IntrusiveList.
+
+splice_after(): Takes another IntrusiveList and inserts all of its nodes into the current list immediately after the cursor's position. The other list becomes empty.
+*/
+impl<'a, T: Linkable> CursorMut<'a, T> {
+    pub fn current(&self) -> Option<&T> {
+        self.current.map(|node_ptr| unsafe { node_ptr.as_ref() })
+    }
+
+    pub fn current_mut(&mut self) -> Option<&mut T> {
+        self.current
+            .map(|mut node_ptr| unsafe { node_ptr.as_mut() })
+    }
+
+    pub fn is_dangling(&self) -> bool {
+        self.current.is_none()
+    }
+
+    pub fn move_next(&mut self) -> Option<&mut T> {
+        let next = self.current().and_then(|node| node.next());
+
+        self.current = next;
+
+        self.current_mut()
+    }
+
+    pub fn move_prev(&mut self) -> Option<&mut T> {
+        let prev = self.current().and_then(|node| node.prev());
+
+        self.current = prev;
+
+        self.current_mut()
+    }
+
+    pub fn remove_current(&mut self) -> Option<NonNull<T>> {
+        let list = unsafe { self.list.as_mut() };
+
+        let current = self.current_mut()?;
+
+        let (prev, next) = (current.prev(), current.next());
+
+        match prev {
+            Some(mut prev_node) => unsafe { prev_node.as_mut().set_next(next) },
+            None => list.head = next,
+        }
+
+        match next {
+            Some(mut next_node) => unsafe { next_node.as_mut().set_prev(prev) },
+            None => list.tail = prev,
+        }
+
+        list.len -= 1;
+
+        current.set_next(None);
+        current.set_prev(None);
+
+        let old_current_ptr = NonNull::from_mut(current);
+        self.current = next;
+
+        Some(old_current_ptr)
+    }
+
+    pub fn insert_before(&mut self, mut new_node: NonNull<T>) {
+        assert_detached(new_node);
+
+        let list = unsafe { self.list.as_mut() };
+
+        match self.current {
+            Some(mut current_node) => {
+                let prev_node = unsafe { current_node.as_mut().prev() };
+
+                unsafe {
+                    new_node.as_mut().set_next(Some(current_node));
+                    new_node.as_mut().set_prev(prev_node);
+                    current_node.as_mut().set_prev(Some(new_node));
+                }
+
+                // update the previous neighbor
+                match prev_node {
+                    Some(mut p) => unsafe { p.as_mut().set_next(Some(new_node)) },
+                    None => list.head = Some(new_node),
+                }
+                list.len += 1;
+            }
+            None => {
+                list.push_back(new_node);
+            }
+        }
+        self.current = Some(new_node);
+    }
+
+    pub fn insert_after(&mut self, mut new_node: NonNull<T>) {
+        assert_detached(new_node);
+
+        let list = unsafe { self.list.as_mut() };
+
+        match self.current {
+            Some(mut current_node) => {
+                let next_node = unsafe { current_node.as_mut().next() };
+
+                unsafe {
+                    new_node.as_mut().set_next(next_node);
+                    new_node.as_mut().set_prev(Some(current_node));
+                    current_node.as_mut().set_next(Some(new_node));
+                }
+
+                match next_node {
+                    Some(mut n) => unsafe { n.as_mut().set_prev(Some(new_node)) },
+                    None => list.tail = Some(new_node),
+                }
+                list.len += 1;
+            }
+            None => {
+                list.push_front(new_node);
+            }
+        }
+        self.current = Some(new_node);
+    }
+}
+
+#[inline]
+fn assert_detached<T: Linkable>(node: NonNull<T>) {
+    assert!(
+        unsafe { node.as_ref().next().is_none() && node.as_ref().prev().is_none() },
+        "Node is already in a list"
+    );
 }
