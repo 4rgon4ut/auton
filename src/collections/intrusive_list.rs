@@ -153,19 +153,12 @@ impl<T: Linkable> Default for IntrusiveList<T> {
     }
 }
 
-// TODO:
 pub struct CursorMut<'a, T: Linkable> {
     list: NonNull<IntrusiveList<T>>,
     current: Option<NonNull<T>>,
     phantom: PhantomData<&'a mut T>,
 }
 
-/*
-
-split_after(): Splits the list into two. All nodes from the beginning up to and including the cursor's current node remain in the original list. All nodes after the cursor are removed and returned as a new IntrusiveList.
-
-splice_after(): Takes another IntrusiveList and inserts all of its nodes into the current list immediately after the cursor's position. The other list becomes empty.
-*/
 impl<'a, T: Linkable> CursorMut<'a, T> {
     pub fn current(&self) -> Option<&T> {
         self.current.map(|node_ptr| unsafe { node_ptr.as_ref() })
@@ -197,11 +190,13 @@ impl<'a, T: Linkable> CursorMut<'a, T> {
     }
 
     pub fn remove_current(&mut self) -> Option<NonNull<T>> {
+        let mut current_ptr = self.current.take()?;
+
         let list = unsafe { self.list.as_mut() };
+        let current_node = unsafe { current_ptr.as_mut() };
 
-        let current = self.current_mut()?;
-
-        let (prev, next) = (current.prev(), current.next());
+        let prev = current_node.prev();
+        let next = current_node.next();
 
         match prev {
             Some(mut prev_node) => unsafe { prev_node.as_mut().set_next(next) },
@@ -215,13 +210,12 @@ impl<'a, T: Linkable> CursorMut<'a, T> {
 
         list.len -= 1;
 
-        current.set_next(None);
-        current.set_prev(None);
+        current_node.set_next(None);
+        current_node.set_prev(None);
 
-        let old_current_ptr = NonNull::from_mut(current);
         self.current = next;
 
-        Some(old_current_ptr)
+        Some(current_ptr)
     }
 
     pub fn insert_before(&mut self, mut new_node: NonNull<T>) {
@@ -279,6 +273,90 @@ impl<'a, T: Linkable> CursorMut<'a, T> {
             }
         }
         self.current = Some(new_node);
+    }
+
+    pub fn split_after(&mut self) -> IntrusiveList<T> {
+        let Some(mut current_ptr) = self.current else {
+            return IntrusiveList::new();
+        };
+
+        let Some(mut new_head_ptr) = (unsafe { current_ptr.as_ref().next() }) else {
+            return IntrusiveList::new();
+        };
+
+        let list = unsafe { self.list.as_mut() };
+        let old_tail = list.tail;
+
+        unsafe {
+            new_head_ptr.as_mut().set_prev(None);
+            current_ptr.as_mut().set_next(None);
+            list.tail = Some(current_ptr);
+        }
+
+        let mut moved_nodes_count = 0;
+        let mut temp_node = Some(new_head_ptr);
+        while let Some(node) = temp_node {
+            moved_nodes_count += 1;
+            temp_node = unsafe { node.as_ref().next() };
+        }
+
+        list.len -= moved_nodes_count;
+
+        IntrusiveList {
+            head: Some(new_head_ptr),
+            tail: old_tail,
+            len: moved_nodes_count,
+            phantom: PhantomData,
+        }
+    }
+
+    pub fn splice_after(&mut self, other: &mut IntrusiveList<T>) {
+        if other.is_empty() {
+            return;
+        }
+
+        let mut other_head = other.head.take().unwrap();
+        let mut other_tail = other.tail.take().unwrap();
+
+        let other_len = other.len;
+        other.len = 0;
+
+        let list = unsafe { self.list.as_mut() };
+
+        match self.current {
+            Some(mut current_ptr) => {
+                let original_next = unsafe { current_ptr.as_ref().next() };
+
+                unsafe {
+                    current_ptr.as_mut().set_next(Some(other_head));
+                    other_head.as_mut().set_prev(Some(current_ptr));
+                }
+
+                match original_next {
+                    Some(mut next_ptr) => unsafe {
+                        other_tail.as_mut().set_next(Some(next_ptr));
+                        next_ptr.as_mut().set_prev(Some(other_tail));
+                    },
+                    None => {
+                        list.tail = Some(other_tail);
+                    }
+                }
+            }
+            None => match list.tail {
+                Some(mut old_tail) => {
+                    unsafe {
+                        old_tail.as_mut().set_next(Some(other_head));
+                        other_head.as_mut().set_prev(Some(old_tail));
+                    }
+                    list.tail = Some(other_tail);
+                }
+                None => {
+                    list.head = Some(other_head);
+                    list.tail = Some(other_tail);
+                }
+            },
+        }
+        list.len += other_len;
     }
 }
 
