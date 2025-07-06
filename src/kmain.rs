@@ -51,7 +51,7 @@ fn halt() -> ! {
 pub extern "C" fn kmain(hart_id: usize, dtb_ptr: usize) -> ! {
     // Default UART base address, can be overridden by FDT
     let fdt = unsafe { Fdt::from_ptr(dtb_ptr as *const u8).unwrap() };
-
+    let memory = fdt.memory();
     drivers::probe_and_init_devices(&fdt);
 
     print_welcome_screen();

@@ -1,6 +1,7 @@
 use core::alloc::GlobalAlloc;
 
 pub mod frame;
+pub mod layout;
 pub mod slub;
 
 struct KernelAllocator;

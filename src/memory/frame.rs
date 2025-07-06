@@ -1,4 +1,4 @@
-use crate::collections::Linkable;
+use crate::collections::{IntrusiveList, Linkable};
 use core::ptr::NonNull;
 
 #[derive(Debug)]
@@ -69,4 +69,19 @@ unsafe impl Linkable for Frame {
     fn set_prev(&mut self, prev: Option<NonNull<Self>>) {
         self.prev = prev;
     }
+}
+
+const BASE_SIZE: usize = 4096; // 4 KiB
+
+pub struct FrameAllocator {
+    free_lists: &'static mut [IntrusiveList<Frame>],
+
+    start_address: usize,
+    size: usize,
+}
+
+impl FrameAllocator {
+    // pub const fn new() -> Self {
+    //     FrameAllocator {}
+    // }
 }
