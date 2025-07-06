@@ -11,6 +11,7 @@ MEMORY
 SECTIONS
 {
     . = ORIGIN(RAM);
+    PROVIDE(_kernel_start = .);
 
     .text : {
         KEEP(*(.init))
@@ -33,6 +34,8 @@ SECTIONS
         *(.bss .bss.*)
         PROVIDE(_bss_end = .);
     } >RAM
+
+    PROVIDE(_kernel_end = .);
 
     . = . + STACK_SIZE;
     . = ALIGN(8);

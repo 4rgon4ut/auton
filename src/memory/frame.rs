@@ -71,7 +71,7 @@ unsafe impl Linkable for Frame {
     }
 }
 
-const BASE_SIZE: usize = 4096; // 4 KiB
+pub const BASE_SIZE: usize = 4096; // 4 KiB
 
 pub struct FrameAllocator {
     free_lists: &'static mut [IntrusiveList<Frame>],
@@ -81,7 +81,7 @@ pub struct FrameAllocator {
 }
 
 impl FrameAllocator {
-    // pub const fn new() -> Self {
+    //  pub const fn new() -> Self {
     //     FrameAllocator {}
     // }
 }
