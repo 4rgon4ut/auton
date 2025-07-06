@@ -2,7 +2,15 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 
 /// A trait for objects that can be part of an `IntrusiveList`.
-pub trait Linkable {
+///
+/// # Safety
+///
+/// The implementor of this trait must guarantee that the `next`, `prev`,
+/// `set_next`, and `set_prev` methods exclusively access and modify the
+/// internal pointers for the intrusive list and do not perform any other
+/// logic. The integrity of the list relies on these methods being implemented
+/// correctly.
+pub unsafe trait Linkable {
     /// Returns a raw pointer to the next element in the list.
     fn next(&self) -> Option<NonNull<Self>>;
 
