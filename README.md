@@ -1,4 +1,4 @@
-# rvos
+# AUTON
 
 This is a pet project to write a small Kernel in Rust for the [RISC-V 64GC](https://riscv.org/) architecture, targeting the [QEMU](https://www.qemu.org/) virt machine.
 

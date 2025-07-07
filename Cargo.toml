@@ -1,10 +1,10 @@
 [package]
-name = "rvos"
+name = "auton"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "rvos"
+name = "auton"
 path = "src/kmain.rs"
 
 [profile.dev]

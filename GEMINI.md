@@ -1,8 +1,8 @@
 
-# rvos Project Context
+# AUTON Project Context
 
 ## Project Overview
-- **Name:** rvos
+- **Name:** auton
 - **Description:** A hobby operating system kernel written in Rust for the RISC-V 64GC architecture. It is designed to run on the QEMU `virt` machine.
 - **Language:** Rust (2024 Edition)
 - **Architecture:** RISC-V (`riscv64gc-unknown-none-elf`)

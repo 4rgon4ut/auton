@@ -1,4 +1,4 @@
-# rvos Architecture
+# Design
 
 This document outlines the architecture and design choices of the rvos kernel.
 
