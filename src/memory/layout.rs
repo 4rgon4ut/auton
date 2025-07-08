@@ -1,30 +1,31 @@
+use super::address::PhysicalAddress;
 use super::frame::{BASE_SIZE, Frame};
 use crate::collections::IntrusiveList;
 
 #[derive(Debug)]
 pub struct MemoryRegion {
-    start: usize,
+    start: PhysicalAddress,
     size: usize,
 }
 
 impl MemoryRegion {
-    pub fn new(start: usize, size: usize) -> Self {
+    pub const fn new(start: PhysicalAddress, size: usize) -> Self {
         Self { start, size }
     }
 
-    pub fn start(&self) -> usize {
+    pub const fn start(&self) -> PhysicalAddress {
         self.start
     }
 
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.size
     }
 
-    pub fn end(&self) -> usize {
+    pub fn end(&self) -> PhysicalAddress {
         self.start + self.size
     }
 
-    pub fn contains(&self, address: usize) -> bool {
+    pub fn contains(&self, address: PhysicalAddress) -> bool {
         address >= self.start && address < self.end()
     }
 }
@@ -50,7 +51,7 @@ pub struct Layout {
 }
 
 impl Layout {
-    pub fn calculate(ram_start: usize, ram_size: usize) -> Self {
+    pub fn calculate(ram_start: PhysicalAddress, ram_size: usize) -> Self {
         // These symbols are defined by the linker script.
         unsafe extern "C" {
             static _kernel_start: [u8; 0];
@@ -62,13 +63,13 @@ impl Layout {
 
         assert_eq!(ram_size % BASE_SIZE, 0, "RAM size is not page-aligned");
         assert!(
-            kernel_start >= ram_start && kernel_end <= ram_start + ram_size,
+            kernel_start >= ram_start.as_usize() && kernel_end <= ram_start.as_usize() + ram_size,
             "Kernel is not loaded within the provided RAM region"
         );
 
         // Kernel Region
         let kernel_size = align_up(kernel_end - kernel_start, BASE_SIZE);
-        let kernel_region = MemoryRegion::new(kernel_start, kernel_size);
+        let kernel_region = MemoryRegion::new(kernel_start.into(), kernel_size);
 
         // Frame Pool Region
         let num_frames = ram_size / BASE_SIZE;
@@ -91,17 +92,45 @@ impl Layout {
             free_memory_start <= ram_start + ram_size,
             "Not enough memory for kernel and metadata"
         );
+        assert_eq!(
+            free_memory_start.as_usize() % BASE_SIZE,
+            0,
+            "Free memory region is not page-aligned"
+        );
 
         let free_memory_size = ram_start + ram_size - free_memory_start;
         let free_memory_region = MemoryRegion::new(free_memory_start, free_memory_size);
 
         Layout {
-            ram: MemoryRegion::new(ram_start, ram_size),
+            ram: MemoryRegion::new(ram_start.into(), ram_size),
             kernel: kernel_region,
             frame_pool: frame_pool_region,
             frame_allocator_metadata: allocator_metadata_region,
             free_memory: free_memory_region,
         }
+    }
+
+    pub fn num_frames(&self) -> usize {
+        self.ram.size() / BASE_SIZE
+    }
+
+    pub fn frame_idx_from_address(&self, address: PhysicalAddress) -> usize {
+        assert!(self.ram.contains(address), "Address is out of bounds");
+
+        (address - self.ram.start()) / BASE_SIZE
+    }
+
+    pub fn address_to_frame_ref(&self, address: PhysicalAddress) -> &mut Frame {
+        let frame_pool_ptr = self.frame_pool.start().as_mut_ptr::<Frame>();
+        unsafe { &mut *frame_pool_ptr.add(self.frame_idx_from_address(address)) }
+    }
+
+    pub fn frame_ref_to_address(&self, frame: &Frame) -> PhysicalAddress {
+        let frame_addr = frame as *const Frame as usize;
+        let frame_idx =
+            self.frame_pool.start().offset_from(frame_addr.into()) / core::mem::size_of::<Frame>();
+
+        self.ram.start() + frame_idx * BASE_SIZE
     }
 }
 

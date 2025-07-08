@@ -1,16 +1,22 @@
-use core::alloc::GlobalAlloc;
-
+pub mod address;
 pub mod frame;
 pub mod layout;
 pub mod slub;
+
+pub use frame::FrameAllocator;
+pub use layout::Layout;
+
+use crate::sync::{OnceLock, Spinlock};
+use core::alloc::GlobalAlloc;
 
 struct KernelAllocator;
 
 // FIXME
 #[global_allocator]
-static ALLOCATOR: KernelAllocator = KernelAllocator;
+pub static ALLOCATOR: KernelAllocator = KernelAllocator;
 
-// FIXME
+pub static FRAME_ALLOCATOR: OnceLock<Spinlock<FrameAllocator>> = OnceLock::new();
+
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, _layout: core::alloc::Layout) -> *mut u8 {
         panic!("Not implemented")
