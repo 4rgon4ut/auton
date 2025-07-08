@@ -2,7 +2,7 @@ use crate::collections::{IntrusiveList, Linkable};
 use crate::memory::Layout;
 use core::{panic, ptr::NonNull};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum State {
     Free,
     Allocated,
@@ -82,6 +82,7 @@ pub struct FrameAllocator {
 
 impl FrameAllocator {
     pub fn init(layout: &'static Layout) -> Self {
+        // create frame metadata slice in the frame pool region
         let frame_slice = unsafe {
             core::slice::from_raw_parts_mut(
                 layout.frame_pool.start().as_mut_ptr::<Frame>(),
@@ -101,6 +102,7 @@ impl FrameAllocator {
 
         let orders = (layout.num_frames().ilog2() + 1) as usize;
 
+        // create free intrusive list for each order in the frame allocator metadata region
         let free_lists = unsafe {
             core::slice::from_raw_parts_mut(
                 layout
@@ -124,6 +126,8 @@ impl FrameAllocator {
         let mut current_free_address = layout.free_memory.start();
         let mut frames_left = layout.free_memory.size() / BASE_SIZE;
 
+        // greedy algorithm to distribute free memory blocks into free lists
+        // starting from the highest order memory block available
         while frames_left > 0 {
             let largest_block_order = frames_left.ilog2();
             let largest_block_frames = 1 << largest_block_order;
@@ -134,6 +138,7 @@ impl FrameAllocator {
 
             head_frame.set_order(largest_block_order as u8);
 
+            // set the frame with correspondng order as a head of the ordered free list
             free_lists[largest_block_order as usize].push_front(NonNull::from(head_frame));
 
             frames_left -= largest_block_frames;

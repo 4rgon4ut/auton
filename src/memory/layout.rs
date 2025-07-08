@@ -114,21 +114,25 @@ impl Layout {
         self.ram.size() / BASE_SIZE
     }
 
+    /// Returns corresponding frame pool index for a given physical address
     pub fn frame_idx_from_address(&self, address: PhysicalAddress) -> usize {
         assert!(self.ram.contains(address), "Address is out of bounds");
 
-        (address - self.ram.start()) / BASE_SIZE
+        address.offset_from(self.ram.start()) / BASE_SIZE
     }
 
+    /// Converts a physical address to a mutable reference to the corresponding `Frame`
+    /// metadata in the frame pool.
     pub fn address_to_frame_ref(&mut self, address: PhysicalAddress) -> &mut Frame {
         let frame_pool_ptr = self.frame_pool.start().as_mut_ptr::<Frame>();
         unsafe { &mut *frame_pool_ptr.add(self.frame_idx_from_address(address)) }
     }
 
+    /// Converts a `Frame` metadata reference to the corresponding memory region start address
     pub fn frame_ref_to_address(&self, frame: &Frame) -> PhysicalAddress {
-        let frame_addr = frame as *const Frame as usize;
+        let frame_addr = PhysicalAddress::new(frame as *const Frame as usize);
         let frame_idx =
-            self.frame_pool.start().offset_from(frame_addr.into()) / core::mem::size_of::<Frame>();
+            frame_addr.offset_from(self.frame_pool.start()) / core::mem::size_of::<Frame>();
 
         self.ram.start() + frame_idx * BASE_SIZE
     }

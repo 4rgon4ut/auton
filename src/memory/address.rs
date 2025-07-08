@@ -41,35 +41,50 @@ impl From<PhysicalAddress> for usize {
     }
 }
 
+// `usize + PhysicalAddress`
 impl Add<usize> for PhysicalAddress {
     type Output = Self;
 
     fn add(self, rhs: usize) -> Self::Output {
-        Self(self.0 + rhs)
+        let result = self
+            .0
+            .checked_add(rhs)
+            .expect("Overflow when adding to a PhysicalAddress");
+        Self(result)
     }
 }
 
+// `usize += PhysicalAddress`
 impl AddAssign<usize> for PhysicalAddress {
     fn add_assign(&mut self, rhs: usize) {
-        self.0 += rhs;
+        self.0 = self
+            .0
+            .checked_add(rhs)
+            .expect("Overflow when adding to a PhysicalAddress");
     }
 }
 
-// Implements `PhysicalAddress - usize`
+// `PhysicalAddress - usize`
 impl Sub<usize> for PhysicalAddress {
     type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        Self(self.0 - rhs)
+        let result = self
+            .0
+            .checked_sub(rhs)
+            .expect("Underflow when subtracting from a PhysicalAddress");
+        Self(result)
     }
 }
 
-// Implements `PhysicalAddress - PhysicalAddress`
+// `PhysicalAddress - PhysicalAddress`
 impl Sub<PhysicalAddress> for PhysicalAddress {
     type Output = usize;
 
     fn sub(self, rhs: PhysicalAddress) -> Self::Output {
-        self.0 - rhs.0
+        self.0
+            .checked_sub(rhs.0)
+            .expect("Underflow when subtracting PhysicalAddresses")
     }
 }
 
