@@ -15,7 +15,7 @@ struct KernelAllocator;
 #[global_allocator]
 pub static ALLOCATOR: KernelAllocator = KernelAllocator;
 
-pub static FRAME_ALLOCATOR: OnceLock<Spinlock<FrameAllocator>> = OnceLock::new();
+// pub static FRAME_ALLOCATOR: OnceLock<Spinlock<FrameAllocator>> = OnceLock::new();
 
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, _layout: core::alloc::Layout) -> *mut u8 {

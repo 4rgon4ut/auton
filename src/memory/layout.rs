@@ -102,7 +102,7 @@ impl Layout {
         let free_memory_region = MemoryRegion::new(free_memory_start, free_memory_size);
 
         Layout {
-            ram: MemoryRegion::new(ram_start.into(), ram_size),
+            ram: MemoryRegion::new(ram_start, ram_size),
             kernel: kernel_region,
             frame_pool: frame_pool_region,
             frame_allocator_metadata: allocator_metadata_region,
@@ -120,7 +120,7 @@ impl Layout {
         (address - self.ram.start()) / BASE_SIZE
     }
 
-    pub fn address_to_frame_ref(&self, address: PhysicalAddress) -> &mut Frame {
+    pub fn address_to_frame_ref(&mut self, address: PhysicalAddress) -> &mut Frame {
         let frame_pool_ptr = self.frame_pool.start().as_mut_ptr::<Frame>();
         unsafe { &mut *frame_pool_ptr.add(self.frame_idx_from_address(address)) }
     }
