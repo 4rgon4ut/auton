@@ -3,6 +3,7 @@ pub mod frame;
 pub mod layout;
 pub mod slub;
 
+pub use address::PhysicalAddress;
 pub use frame::FrameAllocator;
 pub use layout::Layout;
 

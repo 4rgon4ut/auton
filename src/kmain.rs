@@ -1,11 +1,12 @@
 #![no_std]
 #![no_main]
 // Modules
+#[macro_use]
+pub mod printing;
 pub mod collections;
 pub mod devices;
 pub mod drivers;
 pub mod memory;
-pub mod printing;
 pub mod sync;
 pub mod trap;
 
@@ -51,10 +52,24 @@ fn halt() -> ! {
 pub extern "C" fn kmain(hart_id: usize, dtb_ptr: usize) -> ! {
     // Default UART base address, can be overridden by FDT
     let fdt = unsafe { Fdt::from_ptr(dtb_ptr as *const u8).unwrap() };
-    let memory = fdt.memory();
+
     drivers::probe_and_init_devices(&fdt);
 
-    print_welcome_screen();
+    let memory_region = fdt
+        .memory()
+        .regions()
+        .next()
+        .expect("No memory regions defined in FDT");
+
+    // 5. Extract the start address and size from the FDT region
+    let ram_start = memory::PhysicalAddress::new(memory_region.starting_address as usize);
+    let ram_size = memory_region.size.unwrap_or(0);
+
+    let layout = memory::Layout::calculate(ram_start, ram_size);
+
+    println!("{}", layout);
+
+    // print_welcome_screen();
 
     panic!("Test panic on hart {}", hart_id);
 }

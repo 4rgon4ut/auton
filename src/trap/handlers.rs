@@ -1,4 +1,3 @@
-use crate::println;
 use crate::trap::{Trap, TrapFrame};
 
 #[unsafe(no_mangle)]

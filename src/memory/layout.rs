@@ -1,6 +1,7 @@
 use super::address::PhysicalAddress;
 use super::frame::{BASE_SIZE, Frame};
 use crate::collections::IntrusiveList;
+use core::fmt;
 
 #[derive(Debug)]
 pub struct MemoryRegion {
@@ -140,4 +141,43 @@ impl Layout {
 
 fn align_up(addr: usize, align: usize) -> usize {
     (addr + align - 1) & !(align - 1)
+}
+
+impl fmt::Display for MemoryRegion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:>18} ──> {:>18} | {:>8} KiB",
+            self.start(),
+            self.end(),
+            self.size() / 1024
+        )
+    }
+}
+
+impl fmt::Display for Layout {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let line = "═══════════════════════════════════════════════════════";
+
+        writeln!(f)?;
+        writeln!(f, "PHYSICAL MEMORY LAYOUT")?;
+        writeln!(f, "{line}")?;
+
+        let regions = [
+            ("Kernel", &self.kernel),
+            ("Frame Pool", &self.frame_pool),
+            ("Allocator", &self.frame_allocator_metadata),
+            ("Free RAM", &self.free_memory),
+        ];
+
+        for (name, region) in regions {
+            writeln!(f, "{name:<12} | {region}")?;
+        }
+        writeln!(f, "{line}")?;
+
+        writeln!(f, "Total RAM:    {} KiB", self.ram.size() / 1024)?;
+        writeln!(f, "Total Frames: {}", self.num_frames())?;
+
+        Ok(())
+    }
 }

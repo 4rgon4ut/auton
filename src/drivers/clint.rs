@@ -1,6 +1,5 @@
 use super::{Device, Driver};
 use crate::devices::CLINT_INSTANCE;
-use crate::println;
 use crate::sync::Spinlock;
 use core::ptr::{read_volatile, write_volatile};
 
