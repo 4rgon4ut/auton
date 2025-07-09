@@ -243,7 +243,7 @@ impl FrameAllocator {
     }
 
     // FIXME
-    pub fn dealloc() {
+    pub fn dealloc(&mut self, head_frame: NonNull<Frame>) {
         todo!("Implement deallocation");
     }
 }
