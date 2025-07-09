@@ -1,6 +1,6 @@
 use crate::collections::{IntrusiveList, Linkable};
 use crate::memory::Layout;
-use core::{panic, ptr::NonNull};
+use core::ptr::NonNull;
 
 #[derive(Debug, Clone, Copy)]
 pub enum State {
@@ -46,6 +46,10 @@ impl Frame {
     pub fn is_free(&self) -> bool {
         matches!(self.state, State::Free)
     }
+
+    pub fn size(&self) -> usize {
+        (1 << self.order) * BASE_SIZE
+    }
 }
 
 impl Default for Frame {
@@ -76,12 +80,13 @@ pub const BASE_SIZE: usize = 4096; // 4 KiB
 
 pub struct FrameAllocator {
     free_lists: &'static mut [IntrusiveList<Frame>],
+    free_list_bitmap: u64, // TODO: provide bitmap <> free_lits hard sync
     orders: usize,
-    memory_layout: &'static Layout,
+    memory_layout: &'static mut Layout,
 }
 
 impl FrameAllocator {
-    pub fn init(layout: &'static Layout) -> Self {
+    pub fn init(layout: &'static mut Layout) -> Self {
         // create frame metadata slice in the frame pool region
         let frame_slice = unsafe {
             core::slice::from_raw_parts_mut(
@@ -126,6 +131,8 @@ impl FrameAllocator {
         let mut current_free_address = layout.free_memory.start();
         let mut frames_left = layout.free_memory.size() / BASE_SIZE;
 
+        let mut free_list_bitmap: u64 = 0;
+
         // greedy algorithm to distribute free memory blocks into free lists
         // starting from the highest order memory block available
         while frames_left > 0 {
@@ -141,6 +148,8 @@ impl FrameAllocator {
             // set the frame with correspondng order as a head of the ordered free list
             free_lists[largest_block_order as usize].push_front(NonNull::from(head_frame));
 
+            free_list_bitmap |= 1 << largest_block_order; // set the bit for this order
+
             frames_left -= largest_block_frames;
             current_free_address += largest_block_bytes;
         }
@@ -154,18 +163,87 @@ impl FrameAllocator {
 
         FrameAllocator {
             free_lists,
+            free_list_bitmap,
             orders,
             memory_layout: layout,
         }
     }
 
-    // FIXME
-    pub fn alloc() {
-        panic!("Frame allocation not implemented yet");
+    pub fn order_from_size(&self, size: usize) -> u8 {
+        if size == 0 {
+            return 0;
+        }
+        let frames = size.div_ceil(BASE_SIZE); // round up
+        frames.next_power_of_two().ilog2() as u8
+    }
+
+    pub fn alloc(&mut self, size: usize) -> NonNull<Frame> {
+        let order = self.order_from_size(size);
+        // TODO: consider invariants for order
+
+        self.alloc_order(order)
+    }
+
+    pub fn alloc_order(&mut self, order: u8) -> NonNull<Frame> {
+        match self.prepare_block(order) {
+            Some(mut head_frame) => {
+                let frame = unsafe { head_frame.as_mut() };
+                frame.set_state(State::Allocated);
+
+                head_frame
+            }
+            None => {
+                // TODO: handle oom properly
+                panic!(
+                    "Out Of Memory: no free blocks available for order {}",
+                    order
+                );
+            }
+        }
+    }
+
+    fn prepare_block(&mut self, requested_order: u8) -> Option<NonNull<Frame>> {
+        // create a mask with orders >= requested_order
+        let suitable_orders_mask = !((1 << requested_order) - 1);
+
+        // find available blocks in the free list bitmap
+        let available_orders = self.free_list_bitmap & suitable_orders_mask;
+        if available_orders == 0 {
+            return None; // no block found
+        }
+
+        // find the smallest suitable order available
+        let found_order = available_orders.trailing_zeros() as u8;
+
+        let list = &mut self.free_lists[found_order as usize];
+        let mut block_to_split = list.pop_front().unwrap();
+        if list.is_empty() {
+            self.free_list_bitmap &= !(1 << found_order); // clear the bit
+        }
+
+        // split the block down until it fits the requested order
+        for current_order in (requested_order..found_order).rev() {
+            let block_addr = self
+                .memory_layout
+                .frame_ref_to_address(unsafe { block_to_split.as_ref() });
+
+            let buddy_offset = (1 << current_order) * BASE_SIZE;
+            let buddy_addr = block_addr + buddy_offset;
+            let buddy_head_frame = self.memory_layout.address_to_frame_ref(buddy_addr);
+
+            // downgrade blocks order, i.e `split`
+            unsafe { block_to_split.as_mut().set_order(current_order) };
+            buddy_head_frame.set_order(current_order);
+
+            self.free_lists[current_order as usize].push_front(NonNull::from(buddy_head_frame));
+            self.free_list_bitmap |= 1 << current_order; // set the bit for the downgraded order
+        }
+
+        Some(block_to_split)
     }
 
     // FIXME
     pub fn dealloc() {
-        panic!("Frame deallocation not implemented yet");
+        todo!("Implement deallocation");
     }
 }

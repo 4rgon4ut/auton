@@ -125,8 +125,10 @@ impl Layout {
     /// Converts a physical address to a mutable reference to the corresponding `Frame`
     /// metadata in the frame pool.
     pub fn address_to_frame_ref(&mut self, address: PhysicalAddress) -> &mut Frame {
-        let frame_pool_ptr = self.frame_pool.start().as_mut_ptr::<Frame>();
-        unsafe { &mut *frame_pool_ptr.add(self.frame_idx_from_address(address)) }
+        let frame_pool_start = self.frame_pool.start();
+        let start_ptr = frame_pool_start.as_mut_ptr::<Frame>();
+        // let frame_pool_ptr = self.frame_pool.start().as_mut_ptr::<Frame>();
+        unsafe { &mut *start_ptr.add(self.frame_idx_from_address(address)) }
     }
 
     /// Converts a `Frame` metadata reference to the corresponding memory region start address
