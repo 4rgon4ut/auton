@@ -213,6 +213,65 @@ impl<T: Linkable> IntrusiveList<T> {
         })
     }
 
+    /// Removes the given node from the list and returns it.
+    ///
+    /// This is an O(1) operation, as it only requires modifying the pointers
+    /// of the adjacent nodes, regardless of the list's size. After removal,
+    /// the node's own `next` and `prev` pointers are set to `None`.
+    ///
+    /// # Safety
+    ///
+    /// The caller **must** ensure that the provided `node` is a valid pointer
+    /// to an element that is currently part of **this exact list**.
+    ///
+    /// Passing a node that belongs to a different list, a detached node, or an
+    /// otherwise invalid pointer will lead to memory corruption or undefined behavior.
+    pub fn remove(&mut self, mut node: NonNull<T>) -> NonNull<T> {
+        let node_ref = unsafe { node.as_mut() };
+
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(!self.is_empty(), "Cannot remove a node from an empty list");
+
+            let is_consistent_head = node_ref.prev().is_some() || self.head == Some(node);
+            let is_consistent_tail = node_ref.next().is_some() || self.tail == Some(node);
+
+            debug_assert!(
+                is_consistent_head && is_consistent_tail,
+                "Node's links are inconsistent with the list's head or tail"
+            );
+        }
+        let prev = node_ref.prev();
+        let next = node_ref.next();
+
+        match prev {
+            Some(mut p) => {
+                // SAFETY: `p` is a valid pointer from the list's internal links.
+                unsafe { p.as_mut().set_next(next) };
+            }
+            None => {
+                self.head = next;
+            }
+        }
+
+        match next {
+            Some(mut n) => {
+                // SAFETY: `n` is a valid pointer from the list's internal links.
+                unsafe { n.as_mut().set_prev(prev) };
+            }
+            None => {
+                self.tail = prev;
+            }
+        }
+
+        self.len -= 1;
+
+        node_ref.set_next(None);
+        node_ref.set_prev(None);
+
+        node
+    }
+
     /// Returns a `CursorMut` that points to the first element of the list.
     pub fn cursor_mut<'a>(&'a mut self) -> CursorMut<'a, T> {
         CursorMut {

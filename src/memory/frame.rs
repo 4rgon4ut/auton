@@ -202,12 +202,15 @@ impl FrameAllocator {
         }
     }
 
-    fn prepare_block(&mut self, requested_order: u8) -> Option<NonNull<Frame>> {
+    fn suitable_orders_mask(&self, order: u8) -> u64 {
         // create a mask with orders >= requested_order
-        let suitable_orders_mask = !((1 << requested_order) - 1);
-
+        let suitable_orders_mask = !((1 << order) - 1);
         // find available blocks in the free list bitmap
-        let available_orders = self.free_list_bitmap & suitable_orders_mask;
+        self.free_list_bitmap & suitable_orders_mask
+    }
+
+    fn prepare_block(&mut self, requested_order: u8) -> Option<NonNull<Frame>> {
+        let available_orders = self.suitable_orders_mask(requested_order);
         if available_orders == 0 {
             return None; // no block found
         }
@@ -243,7 +246,38 @@ impl FrameAllocator {
     }
 
     // FIXME
-    pub fn dealloc(&mut self, head_frame: NonNull<Frame>) {
-        todo!("Implement deallocation");
+    pub fn dealloc(&mut self, mut frame_to_free: NonNull<Frame>) {
+        let head_frame_ref = unsafe { frame_to_free.as_mut() };
+        head_frame_ref.set_state(State::Free);
+
+        let mut current_order = head_frame_ref.order() as usize;
+        let mut block_address = self.memory_layout.frame_ref_to_address(head_frame_ref);
+
+        while current_order < self.orders - 1 {
+            let buddy_address = block_address ^ (1 << current_order);
+            let buddy_frame_ref = self.memory_layout.address_to_frame_ref(buddy_address);
+
+            if buddy_frame_ref.is_free() && buddy_frame_ref.order() == current_order as u8 {
+                let list = &mut self.free_lists[current_order];
+                let buddy_frame = list.remove(NonNull::from(buddy_frame_ref));
+
+                if list.is_empty() {
+                    self.free_list_bitmap &= !(1 << current_order); // clear the bit
+                }
+
+                if buddy_address < block_address {
+                    frame_to_free = buddy_frame;
+                    block_address = buddy_address;
+                }
+
+                current_order += 1;
+                unsafe { frame_to_free.as_mut().set_order(current_order as u8) };
+            } else {
+                break;
+            }
+        }
+
+        self.free_lists[current_order].push_front(frame_to_free);
+        self.free_list_bitmap |= 1 << current_order;
     }
 }

@@ -1,5 +1,5 @@
 use core::fmt;
-use core::ops::{Add, AddAssign, Sub};
+use core::ops::{Add, AddAssign, BitXor, Sub};
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -85,6 +85,16 @@ impl Sub<PhysicalAddress> for PhysicalAddress {
         self.0
             .checked_sub(rhs.0)
             .expect("Underflow when subtracting PhysicalAddresses")
+    }
+}
+
+// `PhysicalAddress ^ usize`
+impl BitXor<usize> for PhysicalAddress {
+    type Output = Self;
+
+    fn bitxor(self, rhs: usize) -> Self::Output {
+        let result = self.0 ^ rhs;
+        Self(result)
     }
 }
 
