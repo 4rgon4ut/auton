@@ -1,5 +1,6 @@
 pub mod address;
 pub mod frame;
+pub mod free_lists;
 pub mod pmem_map;
 pub mod slub;
 

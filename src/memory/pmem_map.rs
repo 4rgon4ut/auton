@@ -102,6 +102,19 @@ impl PhysicalMemoryMap {
         let free_memory_size = ram_start + ram_size - free_memory_start;
         let free_memory_region = MemoryRegion::new(free_memory_start, free_memory_size);
 
+        assert!(
+            kernel_region.end() <= frame_pool_region.start(),
+            "Kernel region overlaps with Frame Pool region"
+        );
+        assert!(
+            frame_pool_region.end() <= allocator_metadata_region.start(),
+            "Frame Pool region overlaps with Allocator Metadata region"
+        );
+        assert!(
+            allocator_metadata_region.end() <= free_memory_region.start(),
+            "Allocator Metadata region overlaps with Free Memory region"
+        );
+
         PhysicalMemoryMap {
             ram: MemoryRegion::new(ram_start, ram_size),
             kernel: kernel_region,
