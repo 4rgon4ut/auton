@@ -65,9 +65,9 @@ pub extern "C" fn kmain(hart_id: usize, dtb_ptr: usize) -> ! {
     let ram_start = memory::PhysicalAddress::new(memory_region.starting_address as usize);
     let ram_size = memory_region.size.unwrap_or(0);
 
-    let layout = memory::Layout::calculate(ram_start, ram_size);
+    let pmem_map = memory::PhysicalMemoryMap::calculate(ram_start, ram_size);
 
-    println!("{}", layout);
+    println!("{}", pmem_map);
 
     // print_welcome_screen();
 

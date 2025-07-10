@@ -1,5 +1,6 @@
 use crate::collections::{IntrusiveList, Linkable};
-use crate::memory::Layout;
+use crate::memory::{PhysicalAddress, PhysicalMemoryMap};
+use core::alloc::Layout;
 use core::ptr::NonNull;
 
 #[derive(Debug, Clone, Copy)]
@@ -82,22 +83,22 @@ pub struct FrameAllocator {
     free_lists: &'static mut [IntrusiveList<Frame>],
     free_list_bitmap: u64, // TODO: provide bitmap <> free_lits hard sync
     orders: usize,
-    memory_layout: &'static mut Layout,
+    memory_map: &'static mut PhysicalMemoryMap,
 }
 
 impl FrameAllocator {
-    pub fn init(layout: &'static mut Layout) -> Self {
+    pub fn init(pmem_map: &'static mut PhysicalMemoryMap) -> Self {
         // create frame metadata slice in the frame pool region
         let frame_slice = unsafe {
             core::slice::from_raw_parts_mut(
-                layout.frame_pool.start().as_mut_ptr::<Frame>(),
-                layout.num_frames(),
+                pmem_map.frame_pool.start().as_mut_ptr::<Frame>(),
+                pmem_map.num_frames(),
             )
         };
 
         assert_eq!(
             frame_slice.len(),
-            layout.num_frames(),
+            pmem_map.num_frames(),
             "Frame slice length doesn't match number of frames"
         );
 
@@ -105,12 +106,12 @@ impl FrameAllocator {
             *frame = Frame::new();
         });
 
-        let orders = (layout.num_frames().ilog2() + 1) as usize;
+        let orders = (pmem_map.num_frames().ilog2() + 1) as usize;
 
         // create free intrusive list for each order in the frame allocator metadata region
         let free_lists = unsafe {
             core::slice::from_raw_parts_mut(
-                layout
+                pmem_map
                     .frame_allocator_metadata
                     .start()
                     .as_mut_ptr::<IntrusiveList<Frame>>(),
@@ -128,8 +129,8 @@ impl FrameAllocator {
             *list = IntrusiveList::new();
         });
 
-        let mut current_free_address = layout.free_memory.start();
-        let mut frames_left = layout.free_memory.size() / BASE_SIZE;
+        let mut current_free_address = pmem_map.free_memory.start();
+        let mut frames_left = pmem_map.free_memory.size() / BASE_SIZE;
 
         let mut free_list_bitmap: u64 = 0;
 
@@ -140,7 +141,7 @@ impl FrameAllocator {
             let largest_block_frames = 1 << largest_block_order;
             let largest_block_bytes = largest_block_frames * BASE_SIZE;
 
-            let head_frame_idx = (current_free_address - layout.ram.start()) / BASE_SIZE;
+            let head_frame_idx = (current_free_address - pmem_map.ram.start()) / BASE_SIZE;
             let head_frame = &mut frame_slice[head_frame_idx];
 
             head_frame.set_order(largest_block_order as u8);
@@ -157,7 +158,7 @@ impl FrameAllocator {
         assert_eq!(frames_left, 0, "Not all frames were initialized");
         assert_eq!(
             current_free_address,
-            layout.free_memory.end(),
+            pmem_map.free_memory.end(),
             "Uninitialized free memory detected"
         );
 
@@ -165,7 +166,7 @@ impl FrameAllocator {
             free_lists,
             free_list_bitmap,
             orders,
-            memory_layout: layout,
+            memory_map: pmem_map,
         }
     }
 
@@ -177,14 +178,15 @@ impl FrameAllocator {
         frames.next_power_of_two().ilog2() as u8
     }
 
-    pub fn alloc(&mut self, size: usize) -> NonNull<Frame> {
-        let order = self.order_from_size(size);
-        // TODO: consider invariants for order
+    pub fn alloc(&mut self, layout: Layout) -> NonNull<Frame> {
+        // FIXME
+        // if layout.align() > BASE_SIZE {
+        //     // You could handle larger alignments or simply fail.
+        //     return None;
+        // }
 
-        self.alloc_order(order)
-    }
+        let order = self.order_from_size(layout.size());
 
-    pub fn alloc_order(&mut self, order: u8) -> NonNull<Frame> {
         match self.prepare_block(order) {
             Some(mut head_frame) => {
                 let frame = unsafe { head_frame.as_mut() };
@@ -227,12 +229,12 @@ impl FrameAllocator {
         // split the block down until it fits the requested order
         for current_order in (requested_order..found_order).rev() {
             let block_addr = self
-                .memory_layout
+                .memory_map
                 .frame_ref_to_address(unsafe { block_to_split.as_ref() });
 
             let buddy_offset = (1 << current_order) * BASE_SIZE;
             let buddy_addr = block_addr + buddy_offset;
-            let buddy_head_frame = self.memory_layout.address_to_frame_ref(buddy_addr);
+            let buddy_head_frame = self.memory_map.address_to_frame_ref(buddy_addr);
 
             // downgrade blocks order, i.e `split`
             unsafe { block_to_split.as_mut().set_order(current_order) };
@@ -246,38 +248,47 @@ impl FrameAllocator {
     }
 
     // FIXME
-    pub fn dealloc(&mut self, mut frame_to_free: NonNull<Frame>) {
-        let head_frame_ref = unsafe { frame_to_free.as_mut() };
-        head_frame_ref.set_state(State::Free);
+    pub fn dealloc(&mut self, ptr: NonNull<u8>, _layout: Layout) {
+        let mut current_addr = PhysicalAddress::from(ptr.as_ptr() as usize);
+        let frame_ref = self.memory_map.address_to_frame_ref(current_addr);
 
-        let mut current_order = head_frame_ref.order() as usize;
-        let mut block_address = self.memory_layout.frame_ref_to_address(head_frame_ref);
+        frame_ref.set_state(State::Free);
+
+        let mut current_frame_ptr = NonNull::from(frame_ref);
+        let mut current_order = unsafe { current_frame_ptr.as_ref().order() } as usize;
 
         while current_order < self.orders - 1 {
-            let buddy_address = block_address ^ (1 << current_order);
-            let buddy_frame_ref = self.memory_layout.address_to_frame_ref(buddy_address);
+            // calculate buddy address
+            let buddy_offset = (1 << current_order) * BASE_SIZE;
+            let buddy_addr = current_addr ^ buddy_offset;
 
-            if buddy_frame_ref.is_free() && buddy_frame_ref.order() == current_order as u8 {
+            let buddy_frame_ref = self.memory_map.address_to_frame_ref(buddy_addr);
+
+            if buddy_frame_ref.is_free() && buddy_frame_ref.order() as usize == current_order {
                 let list = &mut self.free_lists[current_order];
-                let buddy_frame = list.remove(NonNull::from(buddy_frame_ref));
+                // create a temporary ptr
+                list.remove(NonNull::new(buddy_frame_ref as *mut _).unwrap());
 
                 if list.is_empty() {
                     self.free_list_bitmap &= !(1 << current_order); // clear the bit
                 }
 
-                if buddy_address < block_address {
-                    frame_to_free = buddy_frame;
-                    block_address = buddy_address;
+                // if the buddy has a lower address, it becomes the new block header
+                if buddy_addr < current_addr {
+                    current_addr = buddy_addr;
+                    current_frame_ptr = NonNull::from(buddy_frame_ref);
                 }
 
+                // increase the order for the new block
                 current_order += 1;
-                unsafe { frame_to_free.as_mut().set_order(current_order as u8) };
+                unsafe { current_frame_ptr.as_mut().set_order(current_order as u8) };
             } else {
+                // buddy is not free or is a different size, stop
                 break;
             }
         }
 
-        self.free_lists[current_order].push_front(frame_to_free);
+        self.free_lists[current_order].push_front(current_frame_ptr);
         self.free_list_bitmap |= 1 << current_order;
     }
 }

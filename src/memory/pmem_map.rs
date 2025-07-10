@@ -32,7 +32,7 @@ impl MemoryRegion {
 }
 
 #[derive(Debug)]
-pub struct Layout {
+pub struct PhysicalMemoryMap {
     /// The total available physical RAM discovered from the hardware.
     pub ram: MemoryRegion,
 
@@ -51,7 +51,7 @@ pub struct Layout {
     pub free_memory: MemoryRegion,
 }
 
-impl Layout {
+impl PhysicalMemoryMap {
     pub fn calculate(ram_start: PhysicalAddress, ram_size: usize) -> Self {
         // These symbols are defined by the linker script.
         unsafe extern "C" {
@@ -102,7 +102,7 @@ impl Layout {
         let free_memory_size = ram_start + ram_size - free_memory_start;
         let free_memory_region = MemoryRegion::new(free_memory_start, free_memory_size);
 
-        Layout {
+        PhysicalMemoryMap {
             ram: MemoryRegion::new(ram_start, ram_size),
             kernel: kernel_region,
             frame_pool: frame_pool_region,
@@ -155,7 +155,7 @@ impl fmt::Display for MemoryRegion {
     }
 }
 
-impl fmt::Display for Layout {
+impl fmt::Display for PhysicalMemoryMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let line = "═══════════════════════════════════════════════════════";
 
