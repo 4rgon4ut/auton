@@ -55,23 +55,10 @@ pub extern "C" fn kmain(hart_id: usize, dtb_ptr: usize) -> ! {
 
     drivers::probe_and_init_devices(&fdt);
 
-    let memory_region = fdt
-        .memory()
-        .regions()
-        .next()
-        .expect("No memory regions defined in FDT");
-
-    // 5. Extract the start address and size from the FDT region
-    let ram_start = memory::PhysicalAddress::new(memory_region.starting_address as usize);
-    let ram_size = memory_region.size.unwrap_or(0);
-
-    let pmem_map = memory::PhysicalMemoryMap::calculate(ram_start, ram_size);
-
-    println!("{}", pmem_map);
-
     // print_welcome_screen();
-
-    panic!("Test panic on hart {}", hart_id);
+    memory::init(fdt.memory());
+    halt();
+    // panic!("Test panic on hart {}", hart_id);
 }
 
 pub fn print_welcome_screen() {

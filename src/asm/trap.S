@@ -1,6 +1,6 @@
 # RISC-V Supervisor Trap Handler with Full Context Save/Restore
 // TODO: sscratch
-
+// FIXME: buggy
 .option norvc
 
 .altmacro
@@ -9,7 +9,7 @@
     addi sp, sp, -288
 
     # gprs
-    sd   ra, 0*8(sp)    # x1
+    sd   ra, 1*8(sp)    # x1
     sd   gp, 2*8(sp)    # x3
     sd   tp, 3*8(sp)    # x4
     sd   t0, 4*8(sp)    # x5
@@ -41,7 +41,7 @@
     sd   t6, 30*8(sp)   # x31
 
     # original stack pointer
-    addi t0, sp, 320
+    addi t0, sp, 288
     sd   t0, 1*8(sp)
 
     # csrs
@@ -63,7 +63,7 @@
     csrw sepc, t0
 
     # gprs
-    ld   ra, 0*8(sp)
+    ld   ra, 1*8(sp)
     ld   gp, 2*8(sp)
     ld   tp, 3*8(sp)
     ld   t0, 4*8(sp)

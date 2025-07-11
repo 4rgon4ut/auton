@@ -1,7 +1,7 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
-STACK_SIZE = 16K;
+STACK_SIZE = 64K;
 
 MEMORY
 {
@@ -37,7 +37,5 @@ SECTIONS
 
     PROVIDE(_kernel_end = .);
 
-    . = . + STACK_SIZE;
-    . = ALIGN(8);
-    PROVIDE(_stack_top = .);
+    PROVIDE(_stack_top = ORIGIN(RAM) + LENGTH(RAM));
 }

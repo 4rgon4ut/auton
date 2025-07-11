@@ -4,6 +4,8 @@ use crate::memory::{PhysicalAddress, PhysicalMemoryMap};
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
+pub const BASE_SIZE: usize = 4096; // 4 KiB
+
 #[derive(Debug, Clone, Copy)]
 pub enum State {
     Free,
@@ -78,27 +80,26 @@ unsafe impl Linkable for Frame {
     }
 }
 
-pub const BASE_SIZE: usize = 4096; // 4 KiB
-
 pub struct FrameAllocator {
     free_lists: FreeLists,
     orders: u8,
-    memory_map: &'static mut PhysicalMemoryMap,
+    memory_map: *const PhysicalMemoryMap,
 }
 
 impl FrameAllocator {
-    pub fn init(pmem_map: &'static mut PhysicalMemoryMap) -> Self {
+    pub unsafe fn init(pmem_map: *const PhysicalMemoryMap) -> Self {
+        let memory_map = unsafe { &*pmem_map };
         // create frame metadata slice in the frame pool region
         let frame_slice = unsafe {
             core::slice::from_raw_parts_mut(
-                pmem_map.frame_pool.start().as_mut_ptr::<Frame>(),
-                pmem_map.num_frames(),
+                memory_map.frame_pool.start().as_mut_ptr::<Frame>(),
+                memory_map.num_frames(),
             )
         };
 
         assert_eq!(
             frame_slice.len(),
-            pmem_map.num_frames(),
+            memory_map.num_frames(),
             "Frame slice length doesn't match number of frames"
         );
 
@@ -106,12 +107,12 @@ impl FrameAllocator {
             *frame = Frame::new();
         });
 
-        let orders = (pmem_map.num_frames().ilog2() + 1) as u8;
+        let orders = (memory_map.num_frames().ilog2() + 1) as u8;
 
         // create free intrusive list for each order in the frame allocator metadata region
         let free_lists = unsafe {
             core::slice::from_raw_parts_mut(
-                pmem_map
+                memory_map
                     .frame_allocator_metadata
                     .start()
                     .as_mut_ptr::<IntrusiveList<Frame>>(),
@@ -131,8 +132,8 @@ impl FrameAllocator {
 
         let mut free_lists = FreeLists::new(free_lists);
 
-        let mut current_free_address = pmem_map.free_memory.start();
-        let mut frames_left = pmem_map.free_memory.size() / BASE_SIZE;
+        let mut current_free_address = memory_map.free_memory.start();
+        let mut frames_left = memory_map.free_memory.size() / BASE_SIZE;
 
         // greedy algorithm to distribute free memory blocks into free lists
         // starting from the highest order memory block available
@@ -141,7 +142,7 @@ impl FrameAllocator {
             let largest_block_frames = 1 << largest_block_order;
             let largest_block_bytes = largest_block_frames * BASE_SIZE;
 
-            let head_frame_idx = (current_free_address - pmem_map.ram.start()) / BASE_SIZE;
+            let head_frame_idx = (current_free_address - memory_map.ram.start()) / BASE_SIZE;
             let head_frame = &mut frame_slice[head_frame_idx];
 
             head_frame.set_order(largest_block_order as u8);
@@ -156,7 +157,7 @@ impl FrameAllocator {
         assert_eq!(frames_left, 0, "Not all frames were initialized");
         assert_eq!(
             current_free_address,
-            pmem_map.free_memory.end(),
+            memory_map.free_memory.end(),
             "Uninitialized free memory detected"
         );
 
@@ -165,6 +166,23 @@ impl FrameAllocator {
             orders,
             memory_map: pmem_map,
         }
+    }
+
+    pub fn orders(&self) -> u8 {
+        self.orders
+    }
+
+    pub fn bitmap(&self) -> u64 {
+        self.free_lists.bitmap_bits()
+    }
+
+    fn memory_map(&self) -> &PhysicalMemoryMap {
+        unsafe { &*self.memory_map }
+    }
+
+    pub fn memory_map_mut(&mut self) -> &mut PhysicalMemoryMap {
+        // SAFETY: we do not effectively mutate memory map, only the correspodning frames meta
+        unsafe { &mut *(self.memory_map as *mut PhysicalMemoryMap) }
     }
 
     pub fn order_from_size(&self, size: usize) -> u8 {
@@ -189,7 +207,7 @@ impl FrameAllocator {
         }
 
         assert!(
-            size < self.memory_map.free_memory.size(),
+            size < self.memory_map().free_memory.size(),
             "Requested size exceeds available memory"
         );
 
@@ -200,7 +218,7 @@ impl FrameAllocator {
                 let frame = unsafe { head_frame.as_mut() };
                 frame.set_state(State::Allocated);
 
-                let frame_addr = self.memory_map.frame_ref_to_address(frame);
+                let frame_addr = self.memory_map().frame_ref_to_address(frame);
 
                 NonNull::new(frame_addr.as_mut_ptr::<u8>())
             }
@@ -222,12 +240,12 @@ impl FrameAllocator {
         // split the block down until it fits the requested order
         for current_order in (requested_order..found_order).rev() {
             let block_addr = self
-                .memory_map
+                .memory_map()
                 .frame_ref_to_address(unsafe { block_to_split.as_ref() });
 
             let buddy_offset = (1 << current_order) * BASE_SIZE;
             let buddy_addr = block_addr + buddy_offset;
-            let buddy_head_frame = self.memory_map.address_to_frame_ref(buddy_addr);
+            let buddy_head_frame = self.memory_map().address_to_frame_ref(buddy_addr);
 
             // downgrade blocks order, i.e `split`
             unsafe { block_to_split.as_mut().set_order(current_order) };
@@ -247,12 +265,12 @@ impl FrameAllocator {
         let mut current_addr = PhysicalAddress::from(ptr.as_ptr() as usize);
 
         assert!(
-            self.memory_map.ram.contains(current_addr),
+            self.memory_map().ram.contains(current_addr),
             "Attempted to deallocate a pointer outside managed memory"
         );
 
         let mut current_frame_ptr =
-            NonNull::from(self.memory_map.address_to_frame_ref(current_addr));
+            NonNull::from(self.memory_map().address_to_frame_ref(current_addr));
 
         debug_assert!(
             unsafe { !current_frame_ptr.as_ref().is_free() },
@@ -269,17 +287,17 @@ impl FrameAllocator {
             let buddy_offset = (1 << current_order) * BASE_SIZE;
             let buddy_addr = current_addr ^ buddy_offset;
 
-            let buddy_frame_ref = self.memory_map.address_to_frame_ref(buddy_addr);
+            let buddy_frame_ref = self.memory_map().address_to_frame_ref(buddy_addr);
 
             if buddy_frame_ref.is_free() && buddy_frame_ref.order() == current_order {
-                // pass a copyable raw pointer to avoid moving the original reference
-                self.free_lists.remove_frame(buddy_frame_ref.into());
-
                 // if the buddy has a lower address, it becomes the new block header
                 if buddy_addr < current_addr {
                     current_addr = buddy_addr;
                     current_frame_ptr = buddy_frame_ref.into();
                 }
+
+                // pass a copyable raw pointer to avoid moving the original reference
+                self.free_lists.remove_frame(buddy_frame_ref.into());
 
                 // increase the order for the new block
                 current_order += 1;

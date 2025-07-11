@@ -56,6 +56,10 @@ impl FreeLists {
         }
     }
 
+    pub fn bitmap_bits(&self) -> u64 {
+        self.bitmap.0
+    }
+
     /// pushes a frame onto the front of the correct free list
     #[inline]
     pub fn push_frame(&mut self, frame: NonNull<Frame>) {
