@@ -1,7 +1,9 @@
-use super::address::PhysicalAddress;
-use super::frame::{BASE_SIZE, Frame};
 use crate::collections::IntrusiveList;
+use crate::memory::address::PhysicalAddress;
+use crate::memory::frame::{BASE_SIZE, Frame};
+
 use core::fmt;
+use core::ptr::NonNull;
 
 #[derive(Debug)]
 pub struct MemoryRegion {
@@ -135,11 +137,17 @@ impl PhysicalMemoryMap {
         address.offset_from(self.ram.start()) / BASE_SIZE
     }
 
-    /// Converts a physical address to a mutable reference to the corresponding `Frame`
+    /// Converts a physical address to a raw pointer to the corresponding `Frame`
     /// metadata in the frame pool.
-    pub fn address_to_frame_ref(&self, address: PhysicalAddress) -> &mut Frame {
+    ///
+    /// # SAFETY
+    /// Pointer is guaranteed to be valid and properly aligned,
+    /// since the index is bounds-checked in `frame_idx_from_address()`.
+    pub fn address_to_frame_ptr(&self, address: PhysicalAddress) -> NonNull<Frame> {
         let frame_pool_ptr = self.frame_pool.start().as_mut_ptr::<Frame>();
-        unsafe { &mut *frame_pool_ptr.add(self.frame_idx_from_address(address)) }
+        let frame_ptr = unsafe { frame_pool_ptr.add(self.frame_idx_from_address(address)) };
+
+        unsafe { NonNull::new_unchecked(frame_ptr) }
     }
 
     /// Converts a `Frame` metadata reference to the corresponding memory region start address

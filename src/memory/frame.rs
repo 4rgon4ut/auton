@@ -87,6 +87,14 @@ pub struct FrameAllocator {
 }
 
 impl FrameAllocator {
+    /// # Safety
+    ///
+    /// `pmem_map` must point to a valid, initialized `PhysicalMemoryMap` with
+    /// page-aligned, non-overlapping regions for frame metadata and allocator data.
+    ///
+    /// These regions must be exclusively owned by the allocator and sized correctly.
+    ///
+    /// A raw pointer is used for performance and FFI-compatibility; no aliasing or concurrent access is allowed.
     pub unsafe fn init(pmem_map: *const PhysicalMemoryMap) -> Self {
         let memory_map = unsafe { &*pmem_map };
         // create frame metadata slice in the frame pool region
@@ -245,13 +253,14 @@ impl FrameAllocator {
 
             let buddy_offset = (1 << current_order) * BASE_SIZE;
             let buddy_addr = block_addr + buddy_offset;
-            let buddy_head_frame = self.memory_map().address_to_frame_ref(buddy_addr);
+            let mut buddy_frame_ptr = self.memory_map().address_to_frame_ptr(buddy_addr);
+            let buddy_frame_ref = unsafe { buddy_frame_ptr.as_mut() };
 
             // downgrade blocks order, i.e `split`
             unsafe { block_to_split.as_mut().set_order(current_order) };
-            buddy_head_frame.set_order(current_order);
+            buddy_frame_ref.set_order(current_order);
 
-            self.free_lists.push_frame(NonNull::from(buddy_head_frame));
+            self.free_lists.push_frame(NonNull::from(buddy_frame_ref));
         }
 
         Some(block_to_split)
@@ -269,39 +278,40 @@ impl FrameAllocator {
             "Attempted to deallocate a pointer outside managed memory"
         );
 
-        let mut current_frame_ptr =
-            NonNull::from(self.memory_map().address_to_frame_ref(current_addr));
+        let mut current_frame_ptr = self.memory_map().address_to_frame_ptr(current_addr);
+        let mut current_frame_ref = unsafe { current_frame_ptr.as_mut() };
 
         debug_assert!(
-            unsafe { !current_frame_ptr.as_ref().is_free() },
+            !current_frame_ref.is_free(),
             "Double free detected at address {:#x}",
             current_addr.as_usize()
         );
 
-        unsafe { current_frame_ptr.as_mut().set_state(State::Free) };
+        current_frame_ref.set_state(State::Free);
 
-        let mut current_order = unsafe { current_frame_ptr.as_ref().order() };
+        let mut current_order = current_frame_ref.order();
 
         while current_order < self.orders - 1 {
             // calculate buddy address
             let buddy_offset = (1 << current_order) * BASE_SIZE;
             let buddy_addr = current_addr ^ buddy_offset;
 
-            let buddy_frame_ref = self.memory_map().address_to_frame_ref(buddy_addr);
+            let mut buddy_frame_ptr = self.memory_map().address_to_frame_ptr(buddy_addr);
+            let buddy_frame_ref = unsafe { buddy_frame_ptr.as_mut() };
 
             if buddy_frame_ref.is_free() && buddy_frame_ref.order() == current_order {
-                // if the buddy has a lower address, it becomes the new block header
-                if buddy_addr < current_addr {
-                    current_addr = buddy_addr;
-                    current_frame_ptr = buddy_frame_ref.into();
-                }
-
                 // pass a copyable raw pointer to avoid moving the original reference
                 self.free_lists.remove_frame(buddy_frame_ref.into());
 
+                // if the buddy has a lower address, it becomes the new block header
+                if buddy_addr < current_addr {
+                    current_addr = buddy_addr;
+                    current_frame_ref = buddy_frame_ref;
+                }
+
                 // increase the order for the new block
                 current_order += 1;
-                unsafe { current_frame_ptr.as_mut().set_order(current_order) };
+                current_frame_ref.set_order(current_order);
             } else {
                 // buddy is not free or is a different size, stop
                 break;

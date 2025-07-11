@@ -35,6 +35,7 @@ pub fn init(memory: Memory) {
         .expect("No size defined for the main memory region");
 
     let pmem_map = PhysicalMemoryMap::calculate(ram_start, ram_size);
+
     PMEM_MAP.set(pmem_map).expect("Failed to set PMEM_MAP");
     println!("{}", PMEM_MAP.get().unwrap());
 
