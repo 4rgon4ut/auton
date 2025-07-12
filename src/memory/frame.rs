@@ -188,11 +188,6 @@ impl FrameAllocator {
         unsafe { &*self.memory_map }
     }
 
-    pub fn memory_map_mut(&mut self) -> &mut PhysicalMemoryMap {
-        // SAFETY: we do not effectively mutate memory map, only the correspodning frames meta
-        unsafe { &mut *(self.memory_map as *mut PhysicalMemoryMap) }
-    }
-
     pub fn order_from_size(&self, size: usize) -> u8 {
         if size == 0 {
             return 0;
@@ -301,12 +296,13 @@ impl FrameAllocator {
 
             if buddy_frame_ref.is_free() && buddy_frame_ref.order() == current_order {
                 // pass a copyable raw pointer to avoid moving the original reference
-                self.free_lists.remove_frame(buddy_frame_ref.into());
+                self.free_lists.remove_frame(buddy_frame_ptr);
 
                 // if the buddy has a lower address, it becomes the new block header
                 if buddy_addr < current_addr {
                     current_addr = buddy_addr;
                     current_frame_ref = buddy_frame_ref;
+                    current_frame_ptr = buddy_frame_ptr;
                 }
 
                 // increase the order for the new block
