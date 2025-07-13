@@ -1,4 +1,4 @@
-use crate::collections::IntrusiveList;
+use crate::collections::DoublyLinkedList;
 use crate::memory::frame::Frame;
 use core::ptr::NonNull;
 
@@ -43,13 +43,13 @@ impl Bitmap {
 }
 
 pub struct FreeLists {
-    lists: &'static mut [IntrusiveList<Frame>],
+    lists: &'static mut [DoublyLinkedList<Frame>],
     bitmap: Bitmap,
 }
 
 impl FreeLists {
     #[inline]
-    pub fn new(lists: &'static mut [IntrusiveList<Frame>]) -> Self {
+    pub fn new(lists: &'static mut [DoublyLinkedList<Frame>]) -> Self {
         Self {
             lists,
             bitmap: Bitmap::new(),

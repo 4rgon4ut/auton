@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-/// A trait for objects that can be part of an `IntrusiveList`.
+/// A trait for objects that can be part of an `DoublyLinkedList`.
 ///
 /// # Safety
 ///
@@ -10,7 +10,7 @@ use core::ptr::NonNull;
 /// internal pointers for the intrusive list and do not perform any other
 /// logic. The integrity of the list relies on these methods being implemented
 /// correctly.
-pub unsafe trait Linkable {
+pub unsafe trait DoublyLinkable {
     /// Returns a raw pointer to the next element in the list.
     fn next(&self) -> Option<NonNull<Self>>;
 
@@ -30,21 +30,21 @@ pub unsafe trait Linkable {
 /// elements they contain, rather than being allocated separately.
 ///
 /// The user is responsible for managing the memory of the nodes.
-pub struct IntrusiveList<T: Linkable> {
+pub struct DoublyLinkedList<T: DoublyLinkable> {
     head: Option<NonNull<T>>,
     tail: Option<NonNull<T>>,
     len: usize,
     phantom: PhantomData<*const T>,
 }
 
-impl<T: Linkable> IntrusiveList<T> {
-    /// Creates a new, empty `IntrusiveList`.
+impl<T: DoublyLinkable> DoublyLinkedList<T> {
+    /// Creates a new, empty `DoublyLinkedList`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use intrusive_list::IntrusiveList;
-    /// let list: IntrusiveList<MyNode> = IntrusiveList::new();
+    /// use intrusive_list::DoublyLinkedList;
+    /// let list: DoublyLinkedList<MyNode> = DoublyLinkedList::new();
     /// ```
     pub const fn new() -> Self {
         Self {
@@ -282,22 +282,22 @@ impl<T: Linkable> IntrusiveList<T> {
     }
 }
 
-impl<T: Linkable> Default for IntrusiveList<T> {
+impl<T: DoublyLinkable> Default for DoublyLinkedList<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// A cursor with mutable access to an `IntrusiveList`.
+/// A cursor with mutable access to an `DoublyLinkedList`.
 ///
 /// A `CursorMut` allows for navigation and manipulation of the list.
-pub struct CursorMut<'a, T: Linkable> {
-    list: NonNull<IntrusiveList<T>>,
+pub struct CursorMut<'a, T: DoublyLinkable> {
+    list: NonNull<DoublyLinkedList<T>>,
     current: Option<NonNull<T>>,
     phantom: PhantomData<&'a mut T>,
 }
 
-impl<'a, T: Linkable> CursorMut<'a, T> {
+impl<'a, T: DoublyLinkable> CursorMut<'a, T> {
     /// Returns a reference to the element currently pointed to by the cursor.
     pub fn current(&self) -> Option<&T> {
         // SAFETY: If `self.current` is `Some`, it points to a valid node
@@ -459,17 +459,17 @@ impl<'a, T: Linkable> CursorMut<'a, T> {
 
     /// Splits the list into two after the current element.
     ///
-    /// Returns a new `IntrusiveList` containing all elements after the current one.
+    /// Returns a new `DoublyLinkedList` containing all elements after the current one.
     /// The current element becomes the new tail of the original list.
     /// If the cursor is at the tail, an empty list is returned.
-    pub fn split_after(&mut self) -> IntrusiveList<T> {
+    pub fn split_after(&mut self) -> DoublyLinkedList<T> {
         let Some(mut current_ptr) = self.current else {
-            return IntrusiveList::new();
+            return DoublyLinkedList::new();
         };
 
         // SAFETY: `current_ptr` is valid.
         let Some(mut new_head_ptr) = (unsafe { current_ptr.as_ref().next() }) else {
-            return IntrusiveList::new();
+            return DoublyLinkedList::new();
         };
 
         // SAFETY: `self.list` is a valid pointer.
@@ -494,7 +494,7 @@ impl<'a, T: Linkable> CursorMut<'a, T> {
 
         list.len -= moved_nodes_count;
 
-        IntrusiveList {
+        DoublyLinkedList {
             head: Some(new_head_ptr),
             tail: old_tail,
             len: moved_nodes_count,
@@ -506,7 +506,7 @@ impl<'a, T: Linkable> CursorMut<'a, T> {
     ///
     /// If the cursor is dangling, the elements are inserted at the end of the list.
     /// The `other` list will be empty after this operation.
-    pub fn splice_after(&mut self, other: &mut IntrusiveList<T>) {
+    pub fn splice_after(&mut self, other: &mut DoublyLinkedList<T>) {
         if other.is_empty() {
             return;
         }
@@ -569,7 +569,7 @@ impl<'a, T: Linkable> CursorMut<'a, T> {
 /// This is a sanity check to ensure a node isn't already in a list
 /// before an operation that would insert it.
 #[inline]
-fn assert_detached<T: Linkable>(node: NonNull<T>) {
+fn assert_detached<T: DoublyLinkable>(node: NonNull<T>) {
     // SAFETY: The caller must ensure `node` is a valid pointer.
     // This function is only used in debug builds for internal consistency checks.
     assert!(

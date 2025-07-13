@@ -1,14 +1,12 @@
-use crate::collections::{IntrusiveList, Linkable};
+use crate::collections::{SinglyLinkable, SinglyLinkedList};
 use core::array;
 use core::ptr::NonNull;
 
-// TODO: I need single-linked list for this
 struct Slot {
     next: Option<NonNull<Slot>>,
 }
 
-// TODO: I need single-linked list for this
-unsafe impl Linkable for Slot {
+unsafe impl SinglyLinkable for Slot {
     fn next(&self) -> Option<NonNull<Self>> {
         self.next
     }
@@ -16,36 +14,22 @@ unsafe impl Linkable for Slot {
     fn set_next(&mut self, next: Option<NonNull<Self>>) {
         self.next = next;
     }
-
-    fn prev(&self) -> Option<NonNull<Self>> {
-        None
-    }
-
-    fn set_prev(&mut self, _prev: Option<NonNull<Self>>) {}
 }
 
 struct Slab {
     next: Option<NonNull<Self>>,
     prev: Option<NonNull<Self>>,
 
-    free_slots: IntrusiveList<Slot>,
+    free_slots: SinglyLinkedList<Slot>,
 }
 
-unsafe impl Linkable for Slab {
+unsafe impl SinglyLinkable for Slab {
     fn next(&self) -> Option<NonNull<Self>> {
         self.next
     }
 
     fn set_next(&mut self, next: Option<NonNull<Self>>) {
         self.next = next;
-    }
-
-    fn prev(&self) -> Option<NonNull<Self>> {
-        self.prev
-    }
-
-    fn set_prev(&mut self, prev: Option<NonNull<Self>>) {
-        self.prev = prev;
     }
 }
 
@@ -54,7 +38,7 @@ impl Slab {
         Slab {
             next: None,
             prev: None,
-            free_slots: IntrusiveList::new(),
+            free_slots: SinglyLinkedList::new(),
         }
     }
 }
@@ -62,18 +46,18 @@ impl Slab {
 struct Cache {
     slot_size: usize,
 
-    partial_slabs: IntrusiveList<Slab>,
-    full_slabs: IntrusiveList<Slab>,
-    empty_slabs: IntrusiveList<Slab>,
+    partial_slabs: SinglyLinkedList<Slab>,
+    full_slabs: SinglyLinkedList<Slab>,
+    empty_slabs: SinglyLinkedList<Slab>,
 }
 
 impl Cache {
     pub fn new(slot_size: usize) -> Self {
         Cache {
             slot_size,
-            partial_slabs: IntrusiveList::new(),
-            full_slabs: IntrusiveList::new(),
-            empty_slabs: IntrusiveList::new(),
+            partial_slabs: SinglyLinkedList::new(),
+            full_slabs: SinglyLinkedList::new(),
+            empty_slabs: SinglyLinkedList::new(),
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::collections::{IntrusiveList, Linkable};
+use crate::collections::{DoublyLinkable, DoublyLinkedList};
 use crate::memory::free_lists::FreeLists;
 use crate::memory::{PhysicalAddress, PhysicalMemoryMap};
 use core::alloc::Layout;
@@ -62,7 +62,7 @@ impl Default for Frame {
     }
 }
 
-unsafe impl Linkable for Frame {
+unsafe impl DoublyLinkable for Frame {
     fn next(&self) -> Option<NonNull<Self>> {
         self.next
     }
@@ -123,7 +123,7 @@ impl FrameAllocator {
                 memory_map
                     .frame_allocator_metadata
                     .start()
-                    .as_mut_ptr::<IntrusiveList<Frame>>(),
+                    .as_mut_ptr::<DoublyLinkedList<Frame>>(),
                 orders as usize,
             )
         };
@@ -135,7 +135,7 @@ impl FrameAllocator {
         );
 
         free_lists.iter_mut().for_each(|list| {
-            *list = IntrusiveList::new();
+            *list = DoublyLinkedList::new();
         });
 
         let mut free_lists = FreeLists::new(free_lists);

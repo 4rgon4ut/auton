@@ -1,3 +1,5 @@
-pub mod intrusive_list;
+pub mod doubly_linked_list;
+pub mod singly_linked_list;
 
-pub use intrusive_list::{CursorMut, IntrusiveList, Linkable};
+pub use doubly_linked_list::{CursorMut, DoublyLinkable, DoublyLinkedList};
+pub use singly_linked_list::{SinglyLinkable, SinglyLinkedList};

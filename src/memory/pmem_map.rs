@@ -1,4 +1,4 @@
-use crate::collections::IntrusiveList;
+use crate::collections::DoublyLinkedList;
 use crate::memory::address::PhysicalAddress;
 use crate::memory::frame::{BASE_SIZE, Frame};
 
@@ -82,7 +82,7 @@ impl PhysicalMemoryMap {
         // Allocator Data Region
         let allocator_num_orders = (num_frames.ilog2() + 1) as usize;
         let allocator_metadata_size = align_up(
-            allocator_num_orders * size_of::<IntrusiveList<Frame>>(),
+            allocator_num_orders * size_of::<DoublyLinkedList<Frame>>(),
             BASE_SIZE,
         );
         let allocator_metadata_region =
