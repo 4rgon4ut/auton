@@ -1,3 +1,4 @@
+use crate::collections::SinglyLinkable;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
@@ -10,15 +11,9 @@ use core::ptr::NonNull;
 /// internal pointers for the intrusive list and do not perform any other
 /// logic. The integrity of the list relies on these methods being implemented
 /// correctly.
-pub unsafe trait DoublyLinkable {
-    /// Returns a raw pointer to the next element in the list.
-    fn next(&self) -> Option<NonNull<Self>>;
-
+pub unsafe trait DoublyLinkable: SinglyLinkable {
     /// Returns a raw pointer to the previous element in the list.
     fn prev(&self) -> Option<NonNull<Self>>;
-
-    /// Sets the raw pointer to the next element in the list.
-    fn set_next(&mut self, next: Option<NonNull<Self>>);
 
     /// Sets the raw pointer to the previous element in the list.
     fn set_prev(&mut self, prev: Option<NonNull<Self>>);

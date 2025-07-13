@@ -1,4 +1,4 @@
-use crate::collections::{DoublyLinkable, DoublyLinkedList};
+use crate::collections::{DoublyLinkable, DoublyLinkedList, SinglyLinkable};
 use crate::memory::free_lists::FreeLists;
 use crate::memory::{PhysicalAddress, PhysicalMemoryMap};
 use core::alloc::Layout;
@@ -62,17 +62,19 @@ impl Default for Frame {
     }
 }
 
-unsafe impl DoublyLinkable for Frame {
+unsafe impl SinglyLinkable for Frame {
     fn next(&self) -> Option<NonNull<Self>> {
         self.next
     }
 
-    fn prev(&self) -> Option<NonNull<Self>> {
-        self.prev
-    }
-
     fn set_next(&mut self, next: Option<NonNull<Self>>) {
         self.next = next;
+    }
+}
+
+unsafe impl DoublyLinkable for Frame {
+    fn prev(&self) -> Option<NonNull<Self>> {
+        self.prev
     }
 
     fn set_prev(&mut self, prev: Option<NonNull<Self>>) {
