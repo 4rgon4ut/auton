@@ -1,11 +1,12 @@
 pub mod address;
 pub mod frame;
+pub mod frame_allocator;
 pub mod free_lists;
 pub mod pmem_map;
 pub mod slub;
 
 pub use address::PhysicalAddress;
-pub use frame::FrameAllocator;
+pub use frame_allocator::FrameAllocator;
 pub use pmem_map::PhysicalMemoryMap;
 
 use crate::sync::{OnceLock, Spinlock};
