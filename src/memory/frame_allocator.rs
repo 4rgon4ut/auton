@@ -1,15 +1,18 @@
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
-use crate::collections::{DoublyLinkedList, SinglyLinkedList};
+use crate::collections::DoublyLinkedList;
 use crate::memory::frame::{BASE_SIZE, Frame, State};
 use crate::memory::free_lists::FreeLists;
-use crate::memory::{PhysicalAddress, PhysicalMemoryMap};
+use crate::memory::{HartCache, PhysicalAddress, PhysicalMemoryMap};
 
 const HART_CACHE_FRAMES: usize = 16;
+const MAX_HARTS: usize = 12; // TODO: make dynamic
 
 pub struct FrameAllocator {
-    free_lists: FreeLists,
+    free_lists: FreeLists, // TODO: move lock here
+    hart_caches: [HartCache<Frame, HART_CACHE_FRAMES>; MAX_HARTS],
+
     orders: u8,
     memory_map: *const PhysicalMemoryMap,
 }
@@ -97,8 +100,12 @@ impl FrameAllocator {
             "Uninitialized free memory detected"
         );
 
+        // TODO: check initialization
+        let hart_caches = core::array::from_fn(|_| HartCache::new());
+
         FrameAllocator {
             free_lists,
+            hart_caches,
             orders,
             memory_map: pmem_map,
         }
@@ -144,23 +151,63 @@ impl FrameAllocator {
 
         let order = self.order_from_size(size);
 
-        match self.prepare_block(order) {
-            Some(mut head_frame) => {
-                let frame = unsafe { head_frame.as_mut() };
-                frame.set_state(State::Allocated);
-
-                let frame_addr = self.memory_map().frame_ref_to_address(frame);
-
-                NonNull::new(frame_addr.as_mut_ptr::<u8>())
-            }
-            None => {
+        if order == 0 {
+            match self.get_from_cache() {
+                Some(head_frame) => return self.finalize_frame_allocation(head_frame),
+                None =>
                 // TODO: handle oom properly
+                {
+                    panic!(
+                        "Out Of Memory: no free blocks available for order {}",
+                        order
+                    )
+                }
+            }
+        }
+
+        match self.prepare_block(order) {
+            Some(head_frame) => self.finalize_frame_allocation(head_frame),
+            None =>
+            // TODO: handle oom properly
+            {
                 panic!(
                     "Out Of Memory: no free blocks available for order {}",
                     order
-                );
+                )
             }
         }
+    }
+
+    fn finalize_frame_allocation(&self, mut frame_ptr: NonNull<Frame>) -> Option<NonNull<u8>> {
+        let frame = unsafe { frame_ptr.as_mut() };
+        frame.set_state(State::Allocated);
+        let frame_addr = self.memory_map().frame_ref_to_address(frame);
+
+        NonNull::new(frame_addr.as_mut_ptr::<u8>())
+    }
+
+    fn get_from_cache(&mut self) -> Option<NonNull<Frame>> {
+        // Get the current hart's ID. This is architecture-specific.
+        // You'll need to implement this for your architecture (e.g., by reading `mhartid` in RISC-V).
+        // TODO:
+        let hart_id = 1;
+
+        if !self.hart_caches[hart_id].is_empty() {
+            return self.hart_caches[hart_id].pop();
+        }
+
+        // SLOW PATH (REFILL): The cache is empty.
+        // We need to grab a new batch from the global allocator.
+        for _ in 0..self.hart_caches[hart_id].target_size() {
+            if let Some(frame_ptr) = self.prepare_block(0) {
+                self.hart_caches[hart_id].push(frame_ptr);
+            } else {
+                // Global allocator is out of order-0 frames.
+                break;
+            }
+        }
+
+        self.hart_caches[hart_id].pop()
     }
 
     fn prepare_block(&mut self, requested_order: u8) -> Option<NonNull<Frame>> {
@@ -245,3 +292,6 @@ impl FrameAllocator {
         self.free_lists.push_frame(current_frame_ptr);
     }
 }
+
+unsafe impl Send for FrameAllocator {}
+unsafe impl Sync for FrameAllocator {}

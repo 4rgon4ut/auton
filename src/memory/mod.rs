@@ -2,27 +2,37 @@ pub mod address;
 pub mod frame;
 pub mod frame_allocator;
 pub mod free_lists;
+pub mod hart_cache;
 pub mod pmem_map;
 pub mod slub;
 
 pub use address::PhysicalAddress;
 pub use frame_allocator::FrameAllocator;
+pub use hart_cache::HartCache;
 pub use pmem_map::PhysicalMemoryMap;
+pub use slub::SlubAllocator;
 
 use crate::sync::{OnceLock, Spinlock};
 use core::alloc::GlobalAlloc;
 use fdt::standard_nodes::Memory;
 
-struct KernelAllocator;
-
+// TODO:
 // #[global_allocator]
-// pub static ALLOCATOR: KernelAllocator = KernelAllocator;
+// pub static ALLOCATOR: SlubAllocator = SlubAllocator::new();
+
+// unsafe impl GlobalAlloc for SlubAllocator {
+//     unsafe fn alloc(&self, _layout: core::alloc::Layout) -> *mut u8 {
+//         panic!("Not implemented")
+//     }
+//     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
+//         panic!("Not implemented")
+//     }
+// }
 
 // SAFETY: PhysicalMemoryMap is immutable
 pub static PMEM_MAP: OnceLock<PhysicalMemoryMap> = OnceLock::new();
 
-pub static FRAME_ALLOCATOR: OnceLock<Spinlock<FrameAllocator>> = OnceLock::new();
-unsafe impl Send for FrameAllocator {}
+pub static FRAME_ALLOCATOR: OnceLock<FrameAllocator> = OnceLock::new();
 
 pub fn init(memory: Memory) {
     let main_region = memory
@@ -47,7 +57,7 @@ pub fn init(memory: Memory) {
     let orders = frame_allocator.orders();
     let bitmap = frame_allocator.bitmap();
 
-    match FRAME_ALLOCATOR.set(Spinlock::new(frame_allocator)) {
+    match FRAME_ALLOCATOR.set(frame_allocator) {
         Ok(_) => {
             println!(
                 "[ OK ] FrameAllocator successfully initialized (orders: {}, bitmap: {:b})",
@@ -57,14 +67,5 @@ pub fn init(memory: Memory) {
         Err(_) => {
             panic!("Failed to initialize frame allocator");
         }
-    }
-}
-
-unsafe impl GlobalAlloc for KernelAllocator {
-    unsafe fn alloc(&self, _layout: core::alloc::Layout) -> *mut u8 {
-        panic!("Not implemented")
-    }
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
-        panic!("Not implemented")
     }
 }
