@@ -2,16 +2,19 @@ use core::alloc::Layout;
 use core::ptr::NonNull;
 
 use crate::collections::DoublyLinkedList;
+use crate::cpu::current_hart_id;
 use crate::memory::frame::{BASE_SIZE, Frame, State};
 use crate::memory::free_lists::FreeLists;
 use crate::memory::{HartCache, PhysicalAddress, PhysicalMemoryMap};
+use crate::sync::Spinlock;
 
-const HART_CACHE_FRAMES: usize = 16;
+const CACHE_SIZE_DENOMINATOR: usize = 4;
+const DEFAULT_CACHE_SIZE: usize = 16;
 const MAX_HARTS: usize = 12; // TODO: make dynamic
 
 pub struct FrameAllocator {
-    free_lists: FreeLists, // TODO: move lock here
-    hart_caches: [HartCache<Frame, HART_CACHE_FRAMES>; MAX_HARTS],
+    free_lists: Spinlock<FreeLists>,
+    hart_caches: [HartCache<Frame>; MAX_HARTS],
 
     orders: u8,
     memory_map: *const PhysicalMemoryMap,
@@ -101,10 +104,10 @@ impl FrameAllocator {
         );
 
         // TODO: check initialization
-        let hart_caches = core::array::from_fn(|_| HartCache::new());
+        let hart_caches = core::array::from_fn(|_| HartCache::new(DEFAULT_CACHE_SIZE));
 
         FrameAllocator {
-            free_lists,
+            free_lists: Spinlock::new(free_lists),
             hart_caches,
             orders,
             memory_map: pmem_map,
@@ -116,7 +119,7 @@ impl FrameAllocator {
     }
 
     pub fn bitmap(&self) -> u64 {
-        self.free_lists.bitmap_bits()
+        self.free_lists.lock().bitmap_bits()
     }
 
     fn memory_map(&self) -> &PhysicalMemoryMap {
@@ -187,22 +190,21 @@ impl FrameAllocator {
     }
 
     fn get_from_cache(&mut self) -> Option<NonNull<Frame>> {
-        // Get the current hart's ID. This is architecture-specific.
-        // You'll need to implement this for your architecture (e.g., by reading `mhartid` in RISC-V).
-        // TODO:
-        let hart_id = 1;
+        let hart_id = current_hart_id();
 
         if !self.hart_caches[hart_id].is_empty() {
             return self.hart_caches[hart_id].pop();
         }
 
-        // SLOW PATH (REFILL): The cache is empty.
-        // We need to grab a new batch from the global allocator.
-        for _ in 0..self.hart_caches[hart_id].target_size() {
+        let target = self.hart_caches[hart_id].target_size();
+        let batch_size = (target / CACHE_SIZE_DENOMINATOR).max(1);
+
+        // refill
+        for _ in 0..batch_size {
             if let Some(frame_ptr) = self.prepare_block(0) {
                 self.hart_caches[hart_id].push(frame_ptr);
             } else {
-                // Global allocator is out of order-0 frames.
+                // global allocator is out of order-0 frames
                 break;
             }
         }
@@ -211,9 +213,11 @@ impl FrameAllocator {
     }
 
     fn prepare_block(&mut self, requested_order: u8) -> Option<NonNull<Frame>> {
-        let found_order = self.free_lists.find_first_free_from(requested_order)?;
+        let mut free_lists = self.free_lists.lock();
 
-        let mut block_to_split = self.free_lists.pop_frame(found_order)?;
+        let found_order = free_lists.find_first_free_from(requested_order)?;
+
+        let mut block_to_split = free_lists.pop_frame(found_order)?;
 
         // split the block down until it fits the requested order
         for current_order in (requested_order..found_order).rev() {
@@ -230,7 +234,7 @@ impl FrameAllocator {
             unsafe { block_to_split.as_mut().set_order(current_order) };
             buddy_frame_ref.set_order(current_order);
 
-            self.free_lists.push_frame(NonNull::from(buddy_frame_ref));
+            free_lists.push_frame(NonNull::from(buddy_frame_ref));
         }
 
         Some(block_to_split)
@@ -241,7 +245,7 @@ impl FrameAllocator {
             return; // ZST dropped
         }
 
-        let mut current_addr = PhysicalAddress::from(ptr.as_ptr() as usize);
+        let current_addr = PhysicalAddress::from(ptr.as_ptr() as usize);
 
         assert!(
             self.memory_map().ram.contains(current_addr),
@@ -249,7 +253,7 @@ impl FrameAllocator {
         );
 
         let mut current_frame_ptr = self.memory_map().address_to_frame_ptr(current_addr);
-        let mut current_frame_ref = unsafe { current_frame_ptr.as_mut() };
+        let current_frame_ref = unsafe { current_frame_ptr.as_mut() };
 
         debug_assert!(
             !current_frame_ref.is_free(),
@@ -259,7 +263,38 @@ impl FrameAllocator {
 
         current_frame_ref.set_state(State::Free);
 
+        let order = current_frame_ref.order();
+
+        if order > 0 {
+            self.free_to_global(current_frame_ptr);
+            return;
+        }
+
+        let hart_id = current_hart_id();
+
+        if !self.hart_caches[hart_id].is_full() {
+            return self.hart_caches[hart_id].push(NonNull::from(current_frame_ref));
+        }
+
+        let target = self.hart_caches[hart_id].target_size();
+        let batch_to_trim = (target / 4).max(1);
+
+        // trim full cache
+        for _ in 0..batch_to_trim {
+            let frame_to_free = self.hart_caches[hart_id].pop().unwrap();
+            self.free_to_global(frame_to_free);
+        }
+
+        self.hart_caches[hart_id].push(current_frame_ptr);
+    }
+
+    fn free_to_global(&mut self, frame_ptr: NonNull<Frame>) {
+        let mut current_frame_ptr = frame_ptr;
+        let mut current_frame_ref = unsafe { current_frame_ptr.as_mut() };
+        let mut current_addr = self.memory_map().frame_ref_to_address(current_frame_ref);
         let mut current_order = current_frame_ref.order();
+
+        let mut free_lists = self.free_lists.lock();
 
         while current_order < self.orders - 1 {
             // calculate buddy address
@@ -271,7 +306,7 @@ impl FrameAllocator {
 
             if buddy_frame_ref.is_free() && buddy_frame_ref.order() == current_order {
                 // pass a copyable raw pointer to avoid moving the original reference
-                self.free_lists.remove_frame(buddy_frame_ptr);
+                free_lists.remove_frame(buddy_frame_ptr);
 
                 // if the buddy has a lower address, it becomes the new block header
                 if buddy_addr < current_addr {
@@ -289,7 +324,7 @@ impl FrameAllocator {
             }
         }
 
-        self.free_lists.push_frame(current_frame_ptr);
+        free_lists.push_frame(current_frame_ptr);
     }
 }
 
