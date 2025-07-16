@@ -55,7 +55,34 @@ pub struct PhysicalMemoryMap {
 
 impl PhysicalMemoryMap {
     pub fn calculate(ram_start: PhysicalAddress, ram_size: usize) -> Self {
-        // These symbols are defined by the linker script.
+        let ram = MemoryRegion::new(ram_start, ram_size);
+
+        assert_eq!(ram.size() % BASE_SIZE, 0, "RAM size is not page-aligned");
+
+        let kernel_region = Self::init_kernel_region(&ram);
+
+        let frame_pool_region = Self::init_frame_pool_region(&ram, kernel_region.end());
+
+        let allocator_metadata_region =
+            Self::init_allocator_metadata_region(&ram, frame_pool_region.end());
+
+        let free_memory_region =
+            Self::init_free_memory_region(&ram, allocator_metadata_region.end());
+
+        PhysicalMemoryMap {
+            ram,
+            kernel: kernel_region,
+            frame_pool: frame_pool_region,
+            frame_allocator_metadata: allocator_metadata_region,
+            free_memory: free_memory_region,
+        }
+    }
+
+    // INITIALIZERS
+
+    //
+    fn init_kernel_region(ram: &MemoryRegion) -> MemoryRegion {
+        // these symbols are defined by the linker script
         unsafe extern "C" {
             static _kernel_start: [u8; 0];
             static _kernel_end: [u8; 0];
@@ -64,66 +91,70 @@ impl PhysicalMemoryMap {
         let kernel_start = unsafe { _kernel_start.as_ptr() as usize };
         let kernel_end = unsafe { _kernel_end.as_ptr() as usize };
 
-        assert_eq!(ram_size % BASE_SIZE, 0, "RAM size is not page-aligned");
         assert!(
-            kernel_start >= ram_start.as_usize() && kernel_end <= ram_start.as_usize() + ram_size,
-            "Kernel is not loaded within the provided RAM region"
+            ram.contains(kernel_start.into()),
+            "Kernel start address is out of RAM bounds"
         );
 
-        // Kernel Region
         let kernel_size = align_up(kernel_end - kernel_start, BASE_SIZE);
-        let kernel_region = MemoryRegion::new(kernel_start.into(), kernel_size);
 
-        // Frame Pool Region
-        let num_frames = ram_size / BASE_SIZE;
+        assert!(
+            ram.contains((kernel_start + kernel_size).into()),
+            "Kernel end address is out of RAM bounds"
+        );
+
+        MemoryRegion::new(kernel_start.into(), kernel_size)
+    }
+
+    fn init_frame_pool_region(
+        ram: &MemoryRegion,
+        kernel_region_end: PhysicalAddress,
+    ) -> MemoryRegion {
+        let num_frames = ram.size() / BASE_SIZE;
         let frame_pool_size = align_up(num_frames * size_of::<Frame>(), BASE_SIZE);
-        let frame_pool_region = MemoryRegion::new(kernel_region.end(), frame_pool_size);
 
-        // Allocator Data Region
+        assert!(
+            ram.contains(kernel_region_end + frame_pool_size),
+            "Frame Pool Region end address is out of RAM bounds"
+        );
+
+        MemoryRegion::new(kernel_region_end, frame_pool_size)
+    }
+
+    fn init_allocator_metadata_region(
+        ram: &MemoryRegion,
+        frame_pool_end: PhysicalAddress,
+    ) -> MemoryRegion {
+        let num_frames = ram.size() / BASE_SIZE;
         let allocator_num_orders = (num_frames.ilog2() + 1) as usize;
         let allocator_metadata_size = align_up(
             allocator_num_orders * size_of::<DoublyLinkedList<Frame>>(),
             BASE_SIZE,
         );
-        let allocator_metadata_region =
-            MemoryRegion::new(frame_pool_region.end(), allocator_metadata_size);
-
-        // Free Memory Region
-        let free_memory_start = allocator_metadata_region.end();
 
         assert!(
-            free_memory_start <= ram_start + ram_size,
-            "Not enough memory for kernel and metadata"
+            ram.contains(frame_pool_end + allocator_metadata_size),
+            "Frame Allocator Metadata Region end address is out of RAM bounds"
         );
+
+        MemoryRegion::new(frame_pool_end, allocator_metadata_size)
+    }
+
+    fn init_free_memory_region(
+        ram: &MemoryRegion,
+        allocator_metadata_end: PhysicalAddress,
+    ) -> MemoryRegion {
+        let free_memory_start = allocator_metadata_end;
+
         assert_eq!(
             free_memory_start.as_usize() % BASE_SIZE,
             0,
             "Free memory region is not page-aligned"
         );
 
-        let free_memory_size = ram_start + ram_size - free_memory_start;
-        let free_memory_region = MemoryRegion::new(free_memory_start, free_memory_size);
+        let free_memory_size = ram.end() - free_memory_start;
 
-        assert!(
-            kernel_region.end() <= frame_pool_region.start(),
-            "Kernel region overlaps with Frame Pool region"
-        );
-        assert!(
-            frame_pool_region.end() <= allocator_metadata_region.start(),
-            "Frame Pool region overlaps with Allocator Metadata region"
-        );
-        assert!(
-            allocator_metadata_region.end() <= free_memory_region.start(),
-            "Allocator Metadata region overlaps with Free Memory region"
-        );
-
-        PhysicalMemoryMap {
-            ram: MemoryRegion::new(ram_start, ram_size),
-            kernel: kernel_region,
-            frame_pool: frame_pool_region,
-            frame_allocator_metadata: allocator_metadata_region,
-            free_memory: free_memory_region,
-        }
+        MemoryRegion::new(free_memory_start, free_memory_size)
     }
 
     pub fn num_frames(&self) -> usize {
