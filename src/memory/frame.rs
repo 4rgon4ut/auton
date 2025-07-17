@@ -1,4 +1,5 @@
 use crate::collections::{DoublyLinkable, SinglyLinkable};
+use crate::memory::slub::{SizeClassManager, Slot};
 use core::ptr::NonNull;
 
 pub const BASE_SIZE: usize = 4096; // 4 KiB
@@ -8,12 +9,32 @@ const PER_CPU_CACHE_FRAMES: usize = 16;
 pub enum State {
     Free,
     Allocated,
+    Slab,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct SlabInfo {
+    pub cache: *const SizeClassManager,
+    pub next_slot: Option<NonNull<Slot>>,
+    pub in_use_count: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct BuddyInfo {
+    pub next: Option<NonNull<Frame>>,
+    pub prev: Option<NonNull<Frame>>,
+}
+
+#[repr(C)]
+pub union FrameData {
+    pub slab: SlabInfo,
+    pub buddy: BuddyInfo,
+}
+
 pub struct Frame {
-    next: Option<NonNull<Frame>>,
-    prev: Option<NonNull<Frame>>,
+    pub data: FrameData,
 
     order: u8,
     state: State,
@@ -22,8 +43,12 @@ pub struct Frame {
 impl Frame {
     pub const fn new() -> Self {
         Frame {
-            next: None,
-            prev: None,
+            data: FrameData {
+                buddy: BuddyInfo {
+                    next: None,
+                    prev: None,
+                },
+            },
             order: 0,
             state: State::Free,
         }
@@ -62,20 +87,22 @@ impl Default for Frame {
 
 unsafe impl SinglyLinkable for Frame {
     fn next(&self) -> Option<NonNull<Self>> {
-        self.next
+        unsafe { self.data.buddy.next }
     }
 
     fn set_next(&mut self, next: Option<NonNull<Self>>) {
-        self.next = next;
+        debug_assert!(matches!(self.state, State::Free));
+        self.data.buddy.next = next;
     }
 }
 
 unsafe impl DoublyLinkable for Frame {
     fn prev(&self) -> Option<NonNull<Self>> {
-        self.prev
+        unsafe { self.data.buddy.prev }
     }
 
     fn set_prev(&mut self, prev: Option<NonNull<Self>>) {
-        self.prev = prev;
+        debug_assert!(matches!(self.state, State::Free));
+        self.data.buddy.prev = prev;
     }
 }

@@ -5,16 +5,15 @@ use crate::collections::DoublyLinkedList;
 use crate::cpu::current_hart_id;
 use crate::memory::frame::{BASE_SIZE, Frame, State};
 use crate::memory::free_lists::FreeLists;
+use crate::memory::hart_cache::{MAX_HARTS, Quartering};
 use crate::memory::{HartCache, PhysicalAddress, PhysicalMemoryMap};
 use crate::sync::Spinlock;
 
-const CACHE_SIZE_DENOMINATOR: usize = 4;
 const DEFAULT_CACHE_SIZE: usize = 16;
-const MAX_HARTS: usize = 12; // TODO: make dynamic
 
 pub struct FrameAllocator {
     free_lists: Spinlock<FreeLists>,
-    hart_caches: [HartCache<Frame>; MAX_HARTS],
+    hart_caches: [HartCache<Frame, Quartering>; MAX_HARTS],
 
     orders: u8,
     memory_map: *const PhysicalMemoryMap,
@@ -104,7 +103,7 @@ impl FrameAllocator {
         );
 
         // TODO: check initialization
-        let hart_caches = core::array::from_fn(|_| HartCache::new(DEFAULT_CACHE_SIZE));
+        let hart_caches = core::array::from_fn(|_| HartCache::new(DEFAULT_CACHE_SIZE, Quartering));
 
         FrameAllocator {
             free_lists: Spinlock::new(free_lists),
@@ -196,11 +195,8 @@ impl FrameAllocator {
             return self.hart_caches[hart_id].pop();
         }
 
-        let target = self.hart_caches[hart_id].target_size();
-        let batch_size = (target / CACHE_SIZE_DENOMINATOR).max(1);
-
         // refill
-        for _ in 0..batch_size {
+        for _ in 0..self.hart_caches[hart_id].refill_amount() {
             if let Some(frame_ptr) = self.prepare_block(0) {
                 self.hart_caches[hart_id].push(frame_ptr);
             } else {
@@ -276,11 +272,8 @@ impl FrameAllocator {
             return self.hart_caches[hart_id].push(NonNull::from(current_frame_ref));
         }
 
-        let target = self.hart_caches[hart_id].target_size();
-        let batch_to_trim = (target / 4).max(1);
-
         // trim full cache
-        for _ in 0..batch_to_trim {
+        for _ in 0..self.hart_caches[hart_id].drain_amount() {
             let frame_to_free = self.hart_caches[hart_id].pop().unwrap();
             self.free_to_global(frame_to_free);
         }
