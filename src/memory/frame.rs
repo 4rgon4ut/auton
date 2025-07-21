@@ -1,11 +1,14 @@
 use crate::collections::{DoublyLinkable, SinglyLinkable};
 use crate::memory::slub::{SizeClassManager, Slot};
+use core::alloc::Layout;
+use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
 
 pub const BASE_SIZE: usize = 4096; // 4 KiB
-const PER_CPU_CACHE_FRAMES: usize = 16;
+pub const BASE_SIZE_LAYOUT: Layout =
+    unsafe { Layout::from_size_align_unchecked(BASE_SIZE, BASE_SIZE) };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Free,
     Allocated,
@@ -15,7 +18,7 @@ pub enum State {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct SlabInfo {
-    pub cache: *const SizeClassManager,
+    pub cache: NonNull<SizeClassManager>,
     pub next_slot: Option<NonNull<Slot>>,
     pub in_use_count: u16,
 }
@@ -29,25 +32,25 @@ pub struct BuddyInfo {
 
 #[repr(C)]
 pub union FrameData {
-    pub slab: SlabInfo,
-    pub buddy: BuddyInfo,
+    pub slab: ManuallyDrop<SlabInfo>,
+    pub buddy: ManuallyDrop<BuddyInfo>,
 }
 
 pub struct Frame {
-    pub data: FrameData,
+    data: FrameData,
+    state: State,
 
     order: u8,
-    state: State,
 }
 
 impl Frame {
     pub const fn new() -> Self {
         Frame {
             data: FrameData {
-                buddy: BuddyInfo {
+                buddy: ManuallyDrop::new(BuddyInfo {
                     next: None,
                     prev: None,
-                },
+                }),
             },
             order: 0,
             state: State::Free,
@@ -77,6 +80,51 @@ impl Frame {
     pub fn size(&self) -> usize {
         (1 << self.order) * BASE_SIZE
     }
+
+    pub fn convert_to_slab(
+        &mut self,
+        cache_ptr: NonNull<SizeClassManager>,
+        slots_head: Option<NonNull<Slot>>,
+    ) {
+        self.state = State::Slab;
+        self.data.slab = ManuallyDrop::new(SlabInfo {
+            cache: cache_ptr,
+            next_slot: slots_head,
+            in_use_count: 0,
+        });
+    }
+
+    pub fn slab_info(&self) -> &SlabInfo {
+        debug_assert!(
+            matches!(self.state, State::Slab),
+            "Attempted to access slab info on a non-slab frame"
+        );
+        unsafe { &self.data.slab }
+    }
+
+    pub fn slab_info_mut(&mut self) -> &mut SlabInfo {
+        debug_assert!(
+            matches!(self.state, State::Slab),
+            "Attempted to access slab info on a non-slab frame"
+        );
+        unsafe { &mut self.data.slab }
+    }
+
+    pub fn buddy_info(&self) -> &BuddyInfo {
+        debug_assert!(
+            !matches!(self.state, State::Slab),
+            "Attempted to access buddy info on a slab frame"
+        );
+        unsafe { &self.data.buddy }
+    }
+
+    pub fn buddy_info_mut(&mut self) -> &mut BuddyInfo {
+        debug_assert!(
+            !matches!(self.state, State::Slab),
+            "Attempted to access buddy info on a slab frame"
+        );
+        unsafe { &mut self.data.buddy }
+    }
 }
 
 impl Default for Frame {
@@ -87,22 +135,22 @@ impl Default for Frame {
 
 unsafe impl SinglyLinkable for Frame {
     fn next(&self) -> Option<NonNull<Self>> {
-        unsafe { self.data.buddy.next }
+        self.buddy_info().next
     }
 
     fn set_next(&mut self, next: Option<NonNull<Self>>) {
         debug_assert!(matches!(self.state, State::Free));
-        self.data.buddy.next = next;
+        self.buddy_info_mut().next = next;
     }
 }
 
 unsafe impl DoublyLinkable for Frame {
     fn prev(&self) -> Option<NonNull<Self>> {
-        unsafe { self.data.buddy.prev }
+        self.buddy_info().prev
     }
 
     fn set_prev(&mut self, prev: Option<NonNull<Self>>) {
         debug_assert!(matches!(self.state, State::Free));
-        self.data.buddy.prev = prev;
+        self.buddy_info_mut().prev = prev;
     }
 }

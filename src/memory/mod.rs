@@ -31,8 +31,18 @@ use fdt::standard_nodes::Memory;
 
 // SAFETY: PhysicalMemoryMap is immutable
 pub static PMEM_MAP: OnceLock<PhysicalMemoryMap> = OnceLock::new();
+pub fn pmem_map() -> &'static PhysicalMemoryMap {
+    PMEM_MAP
+        .get()
+        .expect("FATAL: PMEM_MAP accessed before initialization")
+}
 
 pub static FRAME_ALLOCATOR: OnceLock<FrameAllocator> = OnceLock::new();
+pub fn frame_allocator() -> &'static FrameAllocator {
+    FRAME_ALLOCATOR
+        .get()
+        .expect("FATAL: Frame allocator accessed before initialization")
+}
 
 pub fn init(memory: Memory) {
     let main_region = memory

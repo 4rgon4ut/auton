@@ -1,4 +1,5 @@
 use core::alloc::Layout;
+use core::cell::UnsafeCell;
 use core::ptr::NonNull;
 
 use crate::collections::DoublyLinkedList;
@@ -13,7 +14,7 @@ const DEFAULT_CACHE_SIZE: usize = 16;
 
 pub struct FrameAllocator {
     free_lists: Spinlock<FreeLists>,
-    hart_caches: [HartCache<Frame, Quartering>; MAX_HARTS],
+    hart_caches: [UnsafeCell<HartCache<Frame, Quartering>>; MAX_HARTS],
 
     orders: u8,
     memory_map: *const PhysicalMemoryMap,
@@ -103,7 +104,9 @@ impl FrameAllocator {
         );
 
         // TODO: check initialization
-        let hart_caches = core::array::from_fn(|_| HartCache::new(DEFAULT_CACHE_SIZE, Quartering));
+        let hart_caches = core::array::from_fn(|_| {
+            UnsafeCell::new(HartCache::new(DEFAULT_CACHE_SIZE, Quartering))
+        });
 
         FrameAllocator {
             free_lists: Spinlock::new(free_lists),
@@ -121,6 +124,12 @@ impl FrameAllocator {
         self.free_lists.lock().bitmap_bits()
     }
 
+    #[inline]
+    #[allow(clippy::mut_from_ref)]
+    fn hart_cache(&self, hart_id: usize) -> &mut HartCache<Frame, Quartering> {
+        unsafe { &mut *self.hart_caches[hart_id].get() }
+    }
+
     fn memory_map(&self) -> &PhysicalMemoryMap {
         unsafe { &*self.memory_map }
     }
@@ -134,7 +143,7 @@ impl FrameAllocator {
     }
 
     // TODO: cosider result return type with error types later
-    pub fn alloc(&mut self, layout: Layout) -> Option<NonNull<u8>> {
+    pub fn alloc(&self, layout: Layout) -> Option<NonNull<u8>> {
         // TODO: decide if I want to allocate aligned-up size in that case
         if layout.align() > BASE_SIZE {
             return None;
@@ -180,6 +189,10 @@ impl FrameAllocator {
         }
     }
 
+    pub fn alloc_slab(&self) -> Option<NonNull<Frame>> {
+        self.get_from_cache()
+    }
+
     fn finalize_frame_allocation(&self, mut frame_ptr: NonNull<Frame>) -> Option<NonNull<u8>> {
         let frame = unsafe { frame_ptr.as_mut() };
         frame.set_state(State::Allocated);
@@ -188,27 +201,28 @@ impl FrameAllocator {
         NonNull::new(frame_addr.as_mut_ptr::<u8>())
     }
 
-    fn get_from_cache(&mut self) -> Option<NonNull<Frame>> {
+    fn get_from_cache(&self) -> Option<NonNull<Frame>> {
         let hart_id = current_hart_id();
+        let cache = self.hart_cache(hart_id);
 
-        if !self.hart_caches[hart_id].is_empty() {
-            return self.hart_caches[hart_id].pop();
+        if !cache.is_empty() {
+            return cache.pop();
         }
 
         // refill
-        for _ in 0..self.hart_caches[hart_id].refill_amount() {
+        for _ in 0..cache.refill_amount() {
             if let Some(frame_ptr) = self.prepare_block(0) {
-                self.hart_caches[hart_id].push(frame_ptr);
+                cache.push(frame_ptr);
             } else {
                 // global allocator is out of order-0 frames
                 break;
             }
         }
 
-        self.hart_caches[hart_id].pop()
+        cache.pop()
     }
 
-    fn prepare_block(&mut self, requested_order: u8) -> Option<NonNull<Frame>> {
+    fn prepare_block(&self, requested_order: u8) -> Option<NonNull<Frame>> {
         let mut free_lists = self.free_lists.lock();
 
         let found_order = free_lists.find_first_free_from(requested_order)?;
@@ -267,21 +281,22 @@ impl FrameAllocator {
         }
 
         let hart_id = current_hart_id();
+        let cache = self.hart_cache(hart_id);
 
-        if !self.hart_caches[hart_id].is_full() {
-            return self.hart_caches[hart_id].push(NonNull::from(current_frame_ref));
+        if !cache.is_full() {
+            return cache.push(NonNull::from(current_frame_ref));
         }
 
         // trim full cache
-        for _ in 0..self.hart_caches[hart_id].drain_amount() {
-            let frame_to_free = self.hart_caches[hart_id].pop().unwrap();
+        for _ in 0..cache.drain_amount() {
+            let frame_to_free = cache.pop().unwrap();
             self.free_to_global(frame_to_free);
         }
 
-        self.hart_caches[hart_id].push(current_frame_ptr);
+        cache.push(current_frame_ptr);
     }
 
-    fn free_to_global(&mut self, frame_ptr: NonNull<Frame>) {
+    fn free_to_global(&self, frame_ptr: NonNull<Frame>) {
         let mut current_frame_ptr = frame_ptr;
         let mut current_frame_ref = unsafe { current_frame_ptr.as_mut() };
         let mut current_addr = self.memory_map().frame_ref_to_address(current_frame_ref);

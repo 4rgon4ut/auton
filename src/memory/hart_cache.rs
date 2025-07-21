@@ -65,19 +65,26 @@ impl<T: SinglyLinkable, S: CacheStrategy> HartCache<T, S> {
         self.items.pop_front()
     }
 
+    pub fn drain(&mut self) -> impl Iterator<Item = NonNull<T>> {
+        self.items.drain(self.drain_amount())
+    }
+
     #[inline]
     pub fn refill_amount(&self) -> usize {
         self.strategy.refill_amount(self.target_size(), self.len())
     }
 
+    #[inline]
     pub fn drain_amount(&self) -> usize {
         self.strategy.drain_amount(self.target_size(), self.len())
     }
 
+    #[inline]
     pub fn grow(&mut self) {
         self.target_size = self.strategy.increase_target(self.target_size)
     }
 
+    #[inline]
     pub fn shrink(&mut self) {
         self.target_size = self.strategy.decrease_target(self.target_size)
     }
@@ -119,9 +126,9 @@ impl CacheStrategy for Quartering {
     }
 }
 
-pub struct FillToTarget;
+pub struct Greedy;
 
-impl CacheStrategy for FillToTarget {
+impl CacheStrategy for Greedy {
     #[inline]
     fn refill_amount(&self, target_size: usize, current_len: usize) -> usize {
         target_size.saturating_sub(current_len)
@@ -129,7 +136,11 @@ impl CacheStrategy for FillToTarget {
 
     #[inline]
     fn drain_amount(&self, target_size: usize, current_len: usize) -> usize {
-        current_len.saturating_sub(target_size)
+        if current_len > 2 * target_size {
+            current_len / 2
+        } else {
+            0
+        }
     }
 
     #[inline]

@@ -69,13 +69,65 @@ impl<T: SinglyLinkable> SinglyLinkedList<T> {
         })
     }
 
+    pub fn drain(&mut self, amount: usize) -> impl Iterator<Item = NonNull<T>> {
+        let drained_list = if amount == 0 {
+            SinglyLinkedList::new()
+        } else if amount >= self.len {
+            core::mem::take(self)
+        } else {
+            let mut tail_of_drained = self.head.unwrap();
+            for _ in 0..(amount - 1) {
+                tail_of_drained = unsafe { tail_of_drained.as_ref().next().unwrap() };
+            }
+
+            let new_head_for_self = unsafe { tail_of_drained.as_ref().next() };
+            let old_head = self.head;
+
+            self.head = new_head_for_self;
+            self.len -= amount;
+
+            unsafe {
+                tail_of_drained.as_mut().set_next(None);
+            }
+
+            SinglyLinkedList {
+                head: old_head,
+                len: amount,
+                phantom: PhantomData,
+            }
+        };
+
+        drained_list.into_iter()
+    }
+
     pub fn clear(&mut self) {
-        while self.pop_front().is_some() {}
+        core::mem::take(self);
     }
 }
 
 impl<T: SinglyLinkable> Default for SinglyLinkedList<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct IntoIter<T: SinglyLinkable> {
+    list: SinglyLinkedList<T>,
+}
+
+impl<T: SinglyLinkable> IntoIterator for SinglyLinkedList<T> {
+    type Item = NonNull<T>;
+    type IntoIter = IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter { list: self }
+    }
+}
+
+impl<T: SinglyLinkable> Iterator for IntoIter<T> {
+    type Item = NonNull<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.list.pop_front()
     }
 }
