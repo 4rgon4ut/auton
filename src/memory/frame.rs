@@ -20,7 +20,7 @@ pub enum State {
 pub struct SlabInfo {
     pub cache: NonNull<SizeClassManager>,
     pub next_slot: Option<NonNull<Slot>>,
-    pub in_use_count: u16,
+    pub in_use_count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -91,6 +91,19 @@ impl Frame {
             cache: cache_ptr,
             next_slot: slots_head,
             in_use_count: 0,
+        });
+    }
+
+    pub fn free_to_buddy(&mut self) {
+        debug_assert!(
+            matches!(self.state, State::Slab),
+            "Trying to free_to_buddy() a non-slab frame"
+        );
+
+        self.state = State::Free;
+        self.data.buddy = ManuallyDrop::new(BuddyInfo {
+            next: None,
+            prev: None,
         });
     }
 

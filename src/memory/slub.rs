@@ -1,9 +1,12 @@
-use crate::collections::{DoublyLinkedList, SinglyLinkable};
 use crate::cpu::current_hart_id;
 use crate::memory::frame::{BASE_SIZE, Frame};
 use crate::memory::hart_cache::{Greedy, HartCache, MAX_HARTS};
 use crate::memory::{FrameAllocator, frame_allocator, pmem_map};
 use crate::sync::Spinlock;
+use crate::{
+    collections::{DoublyLinkedList, SinglyLinkable},
+    memory::PhysicalAddress,
+};
 
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
@@ -76,7 +79,6 @@ impl SizeClassManager {
     fn create_new_slab(&self) -> Result<NonNull<Frame>, ()> {
         let mut frame = frame_allocator().alloc_slab().ok_or(())?;
         let frame_ref = unsafe { frame.as_mut() };
-
         let frame_addr = pmem_map().frame_ref_to_address(frame_ref);
 
         let start_ptr = frame_addr.as_mut_ptr::<u8>();
@@ -107,7 +109,6 @@ impl SizeClassManager {
 
     fn refill_hart_cache(&self, hart_id: usize) -> Result<(), ()> {
         let cache = self.hart_cache(hart_id);
-
         let mut amount_to_refill = cache.refill_amount();
 
         while amount_to_refill > 0 {
@@ -154,9 +155,27 @@ impl SizeClassManager {
             return cache.push(slot);
         }
 
-        // TODO:
-        cache.drain().for_each(|slot| {});
-        todo!()
+        let pm_map = pmem_map();
+        cache.drain().for_each(|mut slot_ptr| {
+            let mut frame_ptr =
+                pm_map.address_to_frame_ptr(PhysicalAddress::from(slot_ptr.as_ptr() as usize));
+
+            let frame = unsafe { frame_ptr.as_mut() };
+            let slab_info = frame.slab_info_mut();
+            let slot = unsafe { slot_ptr.as_mut() };
+            let was_full = slab_info.in_use_count == self.slots_per_slab;
+
+            slot.next = slab_info.next_slot;
+            slab_info.next_slot = Some(slot_ptr);
+
+            if was_full {
+                // now partial
+                self.partial_slabs.lock().push_front(frame_ptr);
+            } else if slab_info.in_use_count == 0 {
+                // now empty
+                self.empty_slabs.lock().push_front(frame_ptr);
+            }
+        });
     }
 }
 

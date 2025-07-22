@@ -47,7 +47,7 @@ impl<T: SinglyLinkable, S: CacheStrategy> HartCache<T, S> {
 
     #[inline]
     pub fn is_full(&self) -> bool {
-        self.len() >= self.target_size()
+        self.len() >= self.strategy.high_watermark(self.target_size)
     }
 
     #[inline]
@@ -98,6 +98,8 @@ pub trait CacheStrategy {
     fn decrease_target(&self, target_size: usize) -> usize;
 
     fn increase_target(&self, target_size: usize) -> usize;
+
+    fn high_watermark(&self, target_size: usize) -> usize;
 }
 
 pub struct Quartering;
@@ -124,6 +126,11 @@ impl CacheStrategy for Quartering {
     fn increase_target(&self, target_size: usize) -> usize {
         target_size * QUARTERING_DENOMINATOR
     }
+
+    #[inline]
+    fn high_watermark(&self, target_size: usize) -> usize {
+        target_size
+    }
 }
 
 pub struct Greedy;
@@ -135,12 +142,8 @@ impl CacheStrategy for Greedy {
     }
 
     #[inline]
-    fn drain_amount(&self, target_size: usize, current_len: usize) -> usize {
-        if current_len > 2 * target_size {
-            current_len / 2
-        } else {
-            0
-        }
+    fn drain_amount(&self, _target_size: usize, current_len: usize) -> usize {
+        current_len / 2
     }
 
     #[inline]
@@ -151,5 +154,10 @@ impl CacheStrategy for Greedy {
     #[inline]
     fn increase_target(&self, target_size: usize) -> usize {
         target_size
+    }
+
+    #[inline]
+    fn high_watermark(&self, target_size: usize) -> usize {
+        target_size * 2
     }
 }
