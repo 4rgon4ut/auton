@@ -1,15 +1,16 @@
 use crate::cpu::current_hart_id;
-use crate::memory::frame::{BASE_SIZE, Frame};
+use crate::memory::frame::{BASE_SIZE, BASE_SIZE_LAYOUT, Frame};
 use crate::memory::hart_cache::{Greedy, HartCache, MAX_HARTS};
 use crate::memory::{FrameAllocator, frame_allocator, pmem_map};
-use crate::sync::Spinlock;
+use crate::sync::{OnceLock, Spinlock};
 use crate::{
     collections::{DoublyLinkedList, SinglyLinkable},
     memory::PhysicalAddress,
 };
 
-use core::alloc::Layout;
+use core::alloc::{GlobalAlloc, Layout};
 use core::cell::UnsafeCell;
+use core::ptr;
 use core::ptr::NonNull;
 
 pub struct Slot {
@@ -26,8 +27,12 @@ unsafe impl SinglyLinkable for Slot {
     }
 }
 
+const MIN_HART_CACHE_TARGET: usize = 8;
+const MAX_HART_CACHE_TARGET: usize = 128;
+const EMPTY_SLABS_CAP: usize = 4; // TODO: Make dynamic based on memory pressure
+
 pub struct SizeClassManager {
-    hart_caches: [UnsafeCell<HartCache<Slot, Greedy>>; MAX_HARTS],
+    hart_caches: [UnsafeCell<HartCache<Slot, Greedy>>; MAX_HARTS], // TODO: make dynamic based on number of harts
 
     partial_slabs: Spinlock<DoublyLinkedList<Frame>>,
     empty_slabs: Spinlock<DoublyLinkedList<Frame>>,
@@ -36,11 +41,8 @@ pub struct SizeClassManager {
     slots_per_slab: usize,
 }
 
-const MIN_HART_CACHE_TARGET: usize = 8;
-const MAX_HART_CACHE_TARGET: usize = 128;
-
 impl SizeClassManager {
-    pub fn new(object_size: usize) -> Self {
+    pub fn new(num_harts: usize, object_size: usize) -> Self {
         let slots_per_slab = BASE_SIZE / object_size;
 
         let hart_cache_target = slots_per_slab.clamp(MIN_HART_CACHE_TARGET, MAX_HART_CACHE_TARGET);
@@ -114,20 +116,23 @@ impl SizeClassManager {
         while amount_to_refill > 0 {
             let mut slab_to_process = if let Some(slab) = self.partial_slabs.lock().pop_front() {
                 slab
+            } else if let Some(slab) = self.empty_slabs.lock().pop_front() {
+                slab
             } else {
                 self.create_new_slab()?
             };
 
             let slab_ref = unsafe { &mut slab_to_process.as_mut() };
-            let slab_data = slab_ref.slab_info_mut();
+            let mut slab_info = slab_ref.lock_slab_info();
 
             while amount_to_refill > 0 {
-                match slab_data.next_slot {
+                match slab_info.next_slot {
                     Some(slot_ptr) => {
                         let slot = unsafe { slot_ptr.as_ref() };
-                        slab_data.next_slot = slot.next;
+                        slab_info.next_slot = slot.next;
 
                         cache.push(slot_ptr);
+                        slab_info.in_use_count += 1;
 
                         amount_to_refill -= 1;
                     }
@@ -135,10 +140,8 @@ impl SizeClassManager {
                 }
             }
 
-            if slab_data.next_slot.is_some() {
+            if slab_info.next_slot.is_some() {
                 self.partial_slabs.lock().push_front(slab_to_process);
-            } else {
-                self.empty_slabs.lock().push_front(slab_to_process);
             }
         }
 
@@ -156,24 +159,37 @@ impl SizeClassManager {
         }
 
         let pm_map = pmem_map();
+
         cache.drain().for_each(|mut slot_ptr| {
             let mut frame_ptr =
                 pm_map.address_to_frame_ptr(PhysicalAddress::from(slot_ptr.as_ptr() as usize));
 
             let frame = unsafe { frame_ptr.as_mut() };
-            let slab_info = frame.slab_info_mut();
+            let mut slab_info = frame.lock_slab_info();
             let slot = unsafe { slot_ptr.as_mut() };
+
             let was_full = slab_info.in_use_count == self.slots_per_slab;
 
             slot.next = slab_info.next_slot;
             slab_info.next_slot = Some(slot_ptr);
+            slab_info.in_use_count -= 1;
 
             if was_full {
                 // now partial
                 self.partial_slabs.lock().push_front(frame_ptr);
             } else if slab_info.in_use_count == 0 {
                 // now empty
-                self.empty_slabs.lock().push_front(frame_ptr);
+                self.partial_slabs.lock().remove(frame_ptr);
+
+                let mut empty_slabs = self.empty_slabs.lock();
+                empty_slabs.push_front(frame_ptr);
+
+                if empty_slabs.len() >= EMPTY_SLABS_CAP
+                    && let Some(oldest_slab) = empty_slabs.pop_back()
+                {
+                    drop(empty_slabs);
+                    frame_allocator().dealloc(oldest_slab.cast(), BASE_SIZE_LAYOUT);
+                }
             }
         });
     }
@@ -182,16 +198,17 @@ impl SizeClassManager {
 const SIZE_CLASSES: [usize; 9] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 const NUM_CACHES: usize = SIZE_CLASSES.len();
 
+// TODO: consider Poisoning/Red-zoning
 pub struct SlubAllocator {
     size_classes: [SizeClassManager; NUM_CACHES],
-    frame_allocator: &'static FrameAllocator,
 }
 
 impl SlubAllocator {
-    pub fn new(frame_allocator: &'static FrameAllocator) -> Self {
+    pub fn new(num_harts: usize) -> Self {
         Self {
-            size_classes: core::array::from_fn(|i| SizeClassManager::new(SIZE_CLASSES[i])),
-            frame_allocator,
+            size_classes: core::array::from_fn(|i| {
+                SizeClassManager::new(num_harts, SIZE_CLASSES[i])
+            }),
         }
     }
 
@@ -201,3 +218,51 @@ impl SlubAllocator {
             .find(|class| class.object_size >= layout.size())
     }
 }
+
+pub struct KernelAllocator(OnceLock<SlubAllocator>);
+
+#[allow(clippy::new_without_default)]
+impl KernelAllocator {
+    pub const fn new() -> Self {
+        Self(OnceLock::new())
+    }
+}
+
+unsafe impl GlobalAlloc for KernelAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if let Some(slub_allocator) = self.0.get() {
+            slub_allocator
+                .find_size_class(layout)
+                .and_then(|class_manager| class_manager.alloc())
+                .map(|non_null_ptr| non_null_ptr.as_ptr())
+                .unwrap_or(ptr::null_mut())
+        } else {
+            ptr::null_mut()
+        }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if ptr.is_null() {
+            return;
+        }
+
+        let slub_allocator = self.0.get().expect("SlubAllocator not initialized");
+
+        if let Some(class_manager) = slub_allocator.find_size_class(layout) {
+            // checked for null above
+            let non_null_ptr = unsafe { NonNull::new_unchecked(ptr) };
+            class_manager.dealloc(non_null_ptr);
+        } else {
+            // critical error
+            panic!(
+                "dealloc called with unsupported layout: size={}, align={}",
+                layout.size(),
+                layout.align()
+            );
+        }
+    }
+}
+
+// TODO: double check
+unsafe impl Send for SlubAllocator {}
+unsafe impl Sync for SlubAllocator {}

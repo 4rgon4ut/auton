@@ -1,5 +1,10 @@
-use crate::collections::{DoublyLinkable, SinglyLinkable};
 use crate::memory::slub::{SizeClassManager, Slot};
+use crate::sync::Spinlock;
+use crate::{
+    collections::{DoublyLinkable, SinglyLinkable},
+    sync::SpinlockGuard,
+};
+
 use core::alloc::Layout;
 use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
@@ -32,7 +37,7 @@ pub struct BuddyInfo {
 
 #[repr(C)]
 pub union FrameData {
-    pub slab: ManuallyDrop<SlabInfo>,
+    pub slab: ManuallyDrop<Spinlock<SlabInfo>>,
     pub buddy: ManuallyDrop<BuddyInfo>,
 }
 
@@ -87,11 +92,11 @@ impl Frame {
         slots_head: Option<NonNull<Slot>>,
     ) {
         self.state = State::Slab;
-        self.data.slab = ManuallyDrop::new(SlabInfo {
+        self.data.slab = ManuallyDrop::new(Spinlock::new(SlabInfo {
             cache: cache_ptr,
             next_slot: slots_head,
             in_use_count: 0,
-        });
+        }));
     }
 
     pub fn free_to_buddy(&mut self) {
@@ -107,20 +112,13 @@ impl Frame {
         });
     }
 
-    pub fn slab_info(&self) -> &SlabInfo {
+    pub fn lock_slab_info(&self) -> SpinlockGuard<SlabInfo> {
         debug_assert!(
             matches!(self.state, State::Slab),
-            "Attempted to access slab info on a non-slab frame"
+            "Attempted to lock slab info on a non-slab frame"
         );
-        unsafe { &self.data.slab }
-    }
-
-    pub fn slab_info_mut(&mut self) -> &mut SlabInfo {
-        debug_assert!(
-            matches!(self.state, State::Slab),
-            "Attempted to access slab info on a non-slab frame"
-        );
-        unsafe { &mut self.data.slab }
+        // Safety: We've asserted the state is Slab, so this union access is valid.
+        unsafe { (*self.data.slab).lock() }
     }
 
     pub fn buddy_info(&self) -> &BuddyInfo {

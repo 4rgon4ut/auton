@@ -59,8 +59,7 @@ pub extern "C" fn kmain(hart_id: usize, dtb_ptr: usize) -> ! {
     // print_welcome_screen();
     memory::init(fdt.memory());
 
-    halt();
-    // panic!("Test panic on hart {}", hart_id);
+    panic!("Test panic on hart {}", hart_id);
 }
 
 pub fn print_welcome_screen() {

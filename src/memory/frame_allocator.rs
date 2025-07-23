@@ -14,7 +14,7 @@ const DEFAULT_CACHE_SIZE: usize = 16;
 
 pub struct FrameAllocator {
     free_lists: Spinlock<FreeLists>,
-    hart_caches: [UnsafeCell<HartCache<Frame, Quartering>>; MAX_HARTS],
+    hart_caches: [UnsafeCell<HartCache<Frame, Quartering>>; MAX_HARTS], // TODO: make dynamic based on number of harts
 
     orders: u8,
     memory_map: *const PhysicalMemoryMap,
@@ -250,7 +250,7 @@ impl FrameAllocator {
         Some(block_to_split)
     }
 
-    pub fn dealloc(&mut self, ptr: NonNull<u8>, layout: Layout) {
+    pub fn dealloc(&self, ptr: NonNull<u8>, layout: Layout) {
         if layout.size() == 0 {
             return; // ZST dropped
         }

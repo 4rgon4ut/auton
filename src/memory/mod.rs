@@ -10,24 +10,10 @@ pub use address::PhysicalAddress;
 pub use frame_allocator::FrameAllocator;
 pub use hart_cache::HartCache;
 pub use pmem_map::PhysicalMemoryMap;
-pub use slub::SlubAllocator;
+pub use slub::{KernelAllocator, SlubAllocator};
 
-use crate::sync::{OnceLock, Spinlock};
-use core::alloc::GlobalAlloc;
+use crate::sync::OnceLock;
 use fdt::standard_nodes::Memory;
-
-// TODO:
-// #[global_allocator]
-// pub static ALLOCATOR: SlubAllocator = SlubAllocator::new();
-
-// unsafe impl GlobalAlloc for SlubAllocator {
-//     unsafe fn alloc(&self, _layout: core::alloc::Layout) -> *mut u8 {
-//         panic!("Not implemented")
-//     }
-//     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
-//         panic!("Not implemented")
-//     }
-// }
 
 // SAFETY: PhysicalMemoryMap is immutable
 pub static PMEM_MAP: OnceLock<PhysicalMemoryMap> = OnceLock::new();
@@ -43,6 +29,15 @@ pub fn frame_allocator() -> &'static FrameAllocator {
         .get()
         .expect("FATAL: Frame allocator accessed before initialization")
 }
+
+#[global_allocator]
+static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
+
+// FIXME:
+// #[alloc_error_handler]
+// fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
+//     panic!("Kernel allocation error: {:?}", layout);
+// }
 
 pub fn init(memory: Memory) {
     let main_region = memory
@@ -78,4 +73,6 @@ pub fn init(memory: Memory) {
             panic!("Failed to initialize frame allocator");
         }
     }
+
+    // TODO: check kernel allocator initialization
 }
