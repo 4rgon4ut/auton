@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+
 // Modules
 #[macro_use]
 pub mod printing;
@@ -56,10 +57,18 @@ pub extern "C" fn kmain(hart_id: usize, dtb_ptr: usize) -> ! {
 
     drivers::probe_and_init_devices(&fdt);
 
-    // print_welcome_screen();
     memory::init(fdt.memory());
 
+    print_welcome_screen();
     panic!("Test panic on hart {}", hart_id);
+}
+
+#[cfg(miri)]
+#[unsafe(no_mangle)]
+pub fn miri_start(_argc: isize, _argv: *const *const u8) -> isize {
+    // Embed the project's virt.dtb so Fdt::from_ptr in kmain can parse it under Miri.
+    let dtb = include_bytes!("../virt.dtb");
+    kmain(0, dtb.as_ptr() as usize)
 }
 
 pub fn print_welcome_screen() {
