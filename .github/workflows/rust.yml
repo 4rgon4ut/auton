@@ -32,3 +32,19 @@ jobs:
 
     - name: Run rustfmt
       run: cargo fmt -- --check
+
+  miri:
+
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: miri
+    - name: Run Miri
+      run: ./miri.sh
